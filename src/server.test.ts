@@ -155,6 +155,33 @@ async function post(as: string, body: string, extra: Record<string, unknown> = {
   return call('POST', '/v1/posts', { as, body: { body, ...extra } })
 }
 
+/**
+ * How many rows anywhere in this database still contain `needle`.
+ *
+ * The same statement `deploy/scripts/erasure-drill.sh` runs against the live estate, kept
+ * character-for-character in shape so the two cannot drift into asking different questions.
+ * `query_to_xml` is how a count is taken over a table named by a ROW rather than by the query
+ * text: plain SQL cannot interpolate an identifier, and this stays one statement needing no
+ * function and no privilege the test does not already have.
+ *
+ * Deliberately blunt and deliberately over-broad. A curated table list is a list written by
+ * whoever wrote the handler, which is exactly the person who already missed a table.
+ */
+async function residual(needle: string): Promise<number> {
+  const rows = await sql<{ n: number }[]>`
+    select coalesce(sum(n), 0)::int as n from (
+      select (xpath('/row/c/text()', query_to_xml(
+        format('select count(*) as c from %I.%I where %I::text like %L',
+               table_schema, table_name, column_name, ${`%${needle}%`}::text),
+        false, true, '')))[1]::text::int as n
+      from information_schema.columns
+      where table_schema = 'public'
+        and data_type in ('text', 'uuid', 'character varying', 'jsonb')
+    ) t
+  `
+  return rows[0]!.n
+}
+
 describe('the http surface', { skip }, () => {
   /* ---------------------------------------------------------------- the shape of every reply */
 
@@ -592,6 +619,52 @@ describe('the http surface', { skip }, () => {
       // keeps its shape; a person exercising a deletion right did not ask for a tombstone with
       // their handle on it.
       assert.equal(Number(rows[0]!.n), 0)
+    })
+
+    it('leaves the subject in no column of any table, including the ones nothing cascades to', async () => {
+      // THE SAME QUESTION THE ESTATE'S ERASURE DRILL ASKS, ASKED HERE FIRST.
+      //
+      // `deploy/scripts/erasure-drill.sh` does not read a handler. It deletes a real user, then
+      // scans every text, uuid, varchar and jsonb column of every table in `public` for the id.
+      // That scan is what found the defect this test pins: `delete from voices` cascades through
+      // fourteen tables and reaches NEITHER the outbox — where every topic writes the actor's
+      // `user:<uuid>` and seven repeat it in the payload — nor `moderation_actions.operator`,
+      // which is text precisely so an operator need not have a voice here.
+      //
+      // A hand-written list of tables would have been written by the same person who wrote the
+      // handler, and would have missed the same two. So this asks the database.
+      const gone = subject('scanned')
+
+      await post('scanned', 'a thing they said')
+      // The moderator case: this person CLOSED a report rather than being the one reported. Direct
+      // SQL, because how the row arrived is upstream of what is under test, and the admin route
+      // that writes it is covered by `moderation.test.ts`.
+      const reported = await seedNamed(sql, 'scan-target', 'scantarget')
+      await sql`
+        insert into moderation_actions (operator, action, subject_kind, subject_id, reason)
+        values (${gone}, 'voice_suspended', 'voice', ${reported.id}, 'spam')
+      `
+      await sql`
+        insert into reports (subject_kind, subject_id, reason, state, resolution, resolved_by, resolved_at)
+        values ('voice', ${reported.id}, 'spam', 'actioned', 'suspended', ${gone}, now())
+      `
+
+      // The before-check is not ceremony. An assertion over an empty table passes for the wrong
+      // reason, and that is this estate's most-repeated defect.
+      assert.ok(await residual(gone), 'the fixture wrote nothing naming the subject')
+
+      assert.equal((await sendEvent(envelope(gone))).body.status, 'processed')
+
+      assert.equal(await residual(gone), 0, 'a column still names the erased subject')
+      // Redacted, not deleted: the emission and the moderation action survive under a placeholder,
+      // because an unpublished outbox row is a delivery another service is still owed and a
+      // vanished `voice_suspended` un-explains a suspension that is still in force.
+      const kept = await sql<{ n: string }[]>`
+        select (select count(*) from outbox where actor like 'erased:%')
+             + (select count(*) from moderation_actions where operator like 'erased:%')
+             + (select count(*) from reports where resolved_by like 'erased:%') as n
+      `
+      assert.ok(Number(kept[0]!.n) >= 3, 'the redacted rows were deleted rather than redacted')
     })
 
     it('answers a redelivery as a duplicate instead of erasing twice', async () => {

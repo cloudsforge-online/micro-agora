@@ -29,6 +29,7 @@
  * ══════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+import { randomUUID } from 'node:crypto'
 import { withOutbox, type Db, type Emit, type Tx } from './outbox.ts'
 import { RESERVED_HANDLES, isHandle, normaliseHandle } from './text.ts'
 import { claim } from './ratelimit.ts'
@@ -756,16 +757,94 @@ export async function notify(
  * A hard delete, not a flag. The account is gone from identity; leaving its posts up under a
  * tombstone would be this service keeping personal data after the system of record deleted it,
  * which is not a product decision this service gets to make. Every foreign key in `migrations.ts`
- * is `on delete cascade` precisely so this is one statement rather than a list somebody has to
- * remember to extend.
+ * is `on delete cascade` precisely so the CONTENT half is one statement rather than a list
+ * somebody has to remember to extend.
+ *
+ * ── THE THREE TABLES THE CASCADE DOES NOT REACH ───────────────────────────────────────────────
+ *
+ * `delete from voices` was the whole of this function until it was checked against the estate's
+ * erasure drill (`deploy/scripts/erasure-drill.sh`), which does not read a handler — it deletes a
+ * real user and then scans EVERY text, uuid and jsonb column of EVERY table for the id. Three
+ * places hold `user:<uuid>` and none of them hangs off `voices`:
+ *
+ * ┌──────────────────────────┬──────────┬─────────────────────────────────────────────────────────
+ * │ outbox.actor             │ REDACT   │ THE ONE THAT IS EASY TO MISS, AND IT IS THE WORST OF
+ * │ outbox.payload->>subject │          │ the three. Eight of this service's nine topics put the
+ * │                          │          │ actor's `user:<uuid>` on the ENVELOPE, and seven repeat
+ * │                          │          │ it in the payload on purpose (`agora.follow.created`
+ * │                          │          │ argues why). NOTHING PRUNES THIS TABLE — there is no
+ * │                          │          │ sweep in `jobs.ts` and no retention on the rows — so an
+ * │                          │          │ erasure that emptied `voices` and left the outbox would
+ * │                          │          │ keep, for ever, a dated list of everything the person
+ * │                          │          │ did on the square. That is not a lesser copy of the
+ * │                          │          │ posts; on a social service it is a strictly worse one,
+ * │                          │          │ because it is the timing as well as the content.
+ * │                          │          │
+ * │                          │          │ REDACTED, not deleted: an outbox row is the durable
+ * │                          │          │ record that an event was emitted, and an unpublished
+ * │                          │          │ one is a delivery other services are still owed.
+ * │                          │          │ Deleting it would drop an `agora.post.deleted` that
+ * │                          │          │ `micro-activity` is waiting for and leave a dangling
+ * │                          │          │ activity record — an erasure creating the exact
+ * │                          │          │ residue it exists to remove. The redacted row relays
+ * │                          │          │ naming nobody.
+ * ├──────────────────────────┼──────────┼─────────────────────────────────────────────────────────
+ * │ moderation_actions       │ REDACT   │ `operator` is text and holds an identity subject when a
+ * │   .operator              │ the      │ human moderated (a service name otherwise), by the
+ * │ reports.resolved_by      │ operator │ deliberate design recorded on the column: an operator
+ * │                          │          │ is not required to have a voice on the square they
+ * │                          │          │ moderate, so there is no FK to cascade through.
+ * │                          │          │
+ * │                          │          │ This fires when THE MODERATOR is the person erased, not
+ * │                          │          │ the moderated — a case that reads as impossible until
+ * │                          │          │ you notice that whoever staffs the report queue has an
+ * │                          │          │ ecosystem account like everyone else and may close it.
+ * │                          │          │ The ACTION is kept: it is why a post is missing and why
+ * │                          │          │ a voice is suspended, and deleting it would silently
+ * │                          │          │ un-explain live moderation state. Only the attribution
+ * │                          │          │ goes, which is the same trade `micro-devplatform` makes
+ * │                          │          │ for `api_keys.created_by`.
+ * └──────────────────────────┴──────────┴─────────────────────────────────────────────────────────
+ *
+ * `inbox` is checked and genuinely clean: it is `(topic, event_id, received_at)` and carries no
+ * payload, so the deletion event itself leaves nothing behind — which is not true of most services
+ * in this estate and is worth having said out loud rather than rediscovered.
+ *
+ * ── THE PLACEHOLDER ───────────────────────────────────────────────────────────────────────────
+ *
+ * One random `erased:<uuid>` per erasure, never derived from the subject. A hash — keyed or not —
+ * is brute-forceable over a candidate list, and the candidate list is exactly the set of user ids
+ * this platform has. Nothing stores the mapping, so there is nothing to compel and nothing to
+ * leak. One placeholder shared across that person's retained rows leaves those rows linked to each
+ * other and to no person, which is the property that matters; a fresh uuid per row would buy
+ * nothing and hide from an operator that four redactions were one erasure.
  *
  * Returns the voice id it erased, or null when the subject never had one — which is the common
- * case and must not be an error, because the event is delivered to every consumer regardless.
+ * case and must not be an error, because the event is delivered to every consumer regardless. The
+ * redactions run either way: somebody can have moderated, or have been named on an event, without
+ * ever having had a voice of their own.
  */
 export async function eraseSubject(tx: Tx, subject: string): Promise<string | null> {
+  const placeholder = `erased:${randomUUID()}`
+
   const rows = await tx<{ id: string }[]>`
     delete from voices where subject = ${subject} returning id
   `
+
+  // The envelope actor, and the payload copy of it. Two statements rather than one `or`, because
+  // they are two different claims: every topic sets `actor`, and seven of them additionally name
+  // the subject in the body. A row can match either, both or neither.
+  await tx`update outbox set actor = ${placeholder} where actor = ${subject}`
+  await tx`
+    update outbox
+       set payload = jsonb_set(payload, '{subject}', to_jsonb(${placeholder}::text))
+     where payload ->> 'subject' = ${subject}
+  `
+
+  // The moderation record keeps its action and loses its author.
+  await tx`update moderation_actions set operator = ${placeholder} where operator = ${subject}`
+  await tx`update reports set resolved_by = ${placeholder} where resolved_by = ${subject}`
+
   return rows[0]?.id ?? null
 }
 
