@@ -6,7 +6,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `release/**` builds too. A release branch carries the estate-wide version bump, and it has to
+    # publish its images before testnet can be deployed from it — which is what proves the release
+    # before anything is merged. Mainnet is unaffected: it pins a version tag.
+    branches: [main, 'release/**']
   pull_request:
     branches: [main]
 
@@ -16,7 +19,47 @@ jobs:
     with:
       service: agora
       database-env-var: AGORA_DATABASE_URL
+      # The port the IMAGE binds, which is what the smoke test probes — `src/env.ts` defaults PORT
+      # to 4150 and nothing below sets it. The estate overrides PORT to 4000 like every other
+      # service and maps 127.0.0.1:4150 to it; that is a deployment fact and not this one.
       port: 4150
+      # The image startup smoke test boots the real service, and `env.ts` validates its whole
+      # configuration at import — so the container needs the variables it declares, not just a
+      # database, or it exits before it serves /livez. The URLs are CI-only NON-secrets, never
+      # dialled because /livez makes no outbound call, and never a real credential.
+      #
+      # `OUTBOX_SIGNING_SECRET=@generate` RATHER THAN A LITERAL, and the reason is micro-org #142: a
+      # 40-character placeholder that "only had to clear a length check" sat on 44 containers and
+      # passed every guard in the estate. `env.ts` runs `@cloudsforge/secrets`, which refuses a value
+      # that is not SHAPED like a generated secret, and it has no CI exemption on purpose — an
+      # escape hatch is reached for in exactly the hurry that produced the defect. CI does not need
+      # a WEAK secret, it needs A secret: nothing here verifies a signature against anything else,
+      # so the shared workflow expands `@generate` into a fresh `openssl rand -base64 48` per run
+      # and throws it away.
+      #
+      # `AGORA_IDENTITY_CREDENTIAL=@credential` for the same family of reasons (micro-org #222): the
+      # weaker guard a placeholder clears is the guard that let a JWT expired for 26 hours sit in
+      # that variable on a healthy live container. `@credential` mints `cfsc_` + 43 base64url
+      # characters per run — and because base64url includes `-` and `_`, runs exercise BOTH the
+      # hyphenated shape and the alphanumeric one, which is the asymmetry that would otherwise boot
+      # one estate and kill the other.
+      #
+      # IDENTITY_URL is deliberately absent: it defaults to IDENTITY_ISSUER, which is set here.
+      # POLICY_URL is absent too, and its absence is the supported mode worth smoking — `env.ts`
+      # returns `''`, `policyclient.ts` reports DEGRADED rather than pretending a decision, and no
+      # moderation call is made at boot.
+      smoke-env: |
+        IDENTITY_JWKS_URL=http://127.0.0.1:4001/.well-known/jwks.json
+        IDENTITY_ISSUER=http://127.0.0.1:4001
+        OUTBOX_SIGNING_SECRET=@generate
+        AGORA_IDENTITY_CREDENTIAL=@credential
+    secrets:
+      # @cloudsforge/* resolves by link:../runtime and link:../contracts, so CI checks out
+      # micro-runtime and micro-contracts as siblings — both private, so the workflow needs a
+      # contents:read token. This service takes BOTH: `src/outbox.ts` imports
+      # @cloudsforge/contracts-events for the topic names and the envelope, and `src/policyclient.ts`
+      # imports @cloudsforge/contracts-auth for LiveScope.
+      estate_token: ${{ secrets.ESTATE_READ_TOKEN }}
     permissions:
       contents: read
       packages: read
@@ -26,13 +69,19 @@ jobs:
   # naming an image that does not exist — which `cfctl release --verify` and
   # `deploy/scripts/release-deploy.sh` both refuse.
   publish:
-    needs: ci
-    # Only a green main push publishes. Not a pull request, not a branch: a tag that can be
+    needs: [ci, hygiene]
+    # Only a green push to main or a release branch publishes. Not a pull request: a tag that can be
     # produced by an unmerged change is a tag a release manifest cannot trust.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'push' && (github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/heads/release/'))
     uses: cloudsforge-online/micro-org/.github/workflows/publish-image.yml@main
     with:
       kind: service
+    secrets:
+      # The same sibling checkouts the Dockerfile's named build contexts need: the image cannot be
+      # built without micro-runtime and micro-contracts beside it.
+      estate_token: ${{ secrets.ESTATE_READ_TOKEN }}
     permissions:
       contents: read
       # `write`, and it must be granted HERE. A called workflow's token can only be reduced, never

@@ -1,8 +1,21 @@
-node_modules
-dist
+# Secret hygiene first. `.git` carries every secret that was ever committed and then removed; `.env`
+# and `.env.*` carry the ones that were never meant to be committed at all. A COPY with any of these
+# present bakes them into a layer that ships.
 .git
-.github
+.gitignore
 .env
 .env.*
+
+node_modules
+dist
+*.tsbuildinfo
+.github
 *.log
 .DS_Store
+README.md
+
+# The tests and their harness stay out of the running image. They are run against the checkout in
+# CI, they open a database no container has, and `testsupport.ts` exists to forge identities — none
+# of which belongs in a process that answers requests.
+src/**/*.test.ts
+src/testsupport.ts
