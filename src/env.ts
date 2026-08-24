@@ -148,6 +148,21 @@ export interface Env {
    * connection-string variable, so adding a second one here fails the build rather than review.
    */
   readonly databaseUrl: string
+  /**
+   * The TESTNET database, when this deployment serves both networks.
+   *
+   * Empty means single-network, which is every deployment until the consolidation reaches this
+   * service (micro-deploy `docs/network-consolidation.md`). `networkSql` then holds one handle and
+   * REFUSES a testnet request rather than answering it out of mainnet rows.
+   */
+  readonly databaseUrlTestnet: string
+  /**
+   * The network to assume when a request carries no `CF-Network`, or empty to refuse.
+   *
+   * Set for `pnpm dev`, which has no gateway to stamp the header. Never set in production, where
+   * an unstamped request is a routing fault and guessing makes it a silent cross-network write.
+   */
+  readonly singleNetwork: string
   readonly databasePoolMax: number
   readonly identityJwksUrl: string
   readonly identityIssuer: string
@@ -241,6 +256,8 @@ export function loadEnv(source: Source = process.env, host = ''): Env {
     version: optional(source, 'CLOUDSFORGE_TAG', 'dev'),
     logLevel: logLevel as Env['logLevel'],
     databaseUrl: required(source, 'AGORA_DATABASE_URL'),
+    databaseUrlTestnet: source['AGORA_DATABASE_URL_TESTNET'] ?? '',
+    singleNetwork: source['CF_NETWORK_SINGLE'] ?? '',
     databasePoolMax: integer(source, 'AGORA_DATABASE_POOL_MAX', 10, 1, 100),
     identityJwksUrl: required(source, 'IDENTITY_JWKS_URL'),
     identityIssuer: required(source, 'IDENTITY_ISSUER'),

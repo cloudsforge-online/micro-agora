@@ -31,9 +31,19 @@ import type postgres from 'postgres'
 import { JobQueue, type Sql as JobsSql } from '@cloudsforge/jobs'
 import { Lifecycle } from '@cloudsforge/lifecycle'
 import { TokenError, VerifierUnavailableError, type Principal } from '@cloudsforge/auth'
+import { networkSql, type Sql as RuntimeSql } from '@cloudsforge/db'
 import { createServer, USER_DELETED_TOPIC } from './server.ts'
 import { signEvent, SIGNATURE_HEADER } from './outbox.ts'
 import { findVoiceBySubject } from './voices.ts'
+
+/**
+ * One handle, presented as the per-network selector the server now takes.
+ *
+ * The fixtures run against a single test database, so mainnet is the only network configured —
+ * which also means these tests exercise the REFUSAL path for free: anything that reached for
+ * testnet here would throw rather than quietly reuse this handle.
+ */
+const singleNetworkSql = (db: unknown) => networkSql({ mainnet: db as RuntimeSql })
 import {
   asDb,
   migrateTestDb,
@@ -93,7 +103,8 @@ before(async () => {
     logger: quietLogger(),
     metrics: testMetrics(),
     verifier,
-    sql: asDb(sql),
+    sql: singleNetworkSql(asDb(sql)),
+    singleNetwork: 'mainnet' as const,
     producer: 'agora',
     posts: deps.posts,
     circles: deps.circles,
@@ -871,7 +882,8 @@ function createAltServer(database: postgres.Sql, options: Parameters<typeof test
         logger: quietLogger(),
         metrics: testMetrics(),
         verifier,
-        sql: asDb(database),
+        sql: singleNetworkSql(asDb(database)),
+        singleNetwork: 'mainnet' as const,
         producer: 'agora',
         posts: deps.posts,
         circles: deps.circles,
