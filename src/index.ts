@@ -18,7 +18,7 @@
  */
 
 import postgres from 'postgres'
-import { assertSchemaAtLeast, type Sql as DbSql } from '@cloudsforge/db'
+import { assertSchemaAtLeast, networkSql, type Sql as DbSql } from '@cloudsforge/db'
 import { JobQueue, JobRunner, type Sql as JobsSql } from '@cloudsforge/jobs'
 import { Verifier } from '@cloudsforge/auth'
 import { Lifecycle, httpProbe, installSignalHandlers, postgresProbe } from '@cloudsforge/lifecycle'
@@ -59,11 +59,25 @@ logger.info('starting', {
 
 // 3. The database pool. Opened before the schema assertion for the obvious reason that the
 //    assertion is a query, and before the Lifecycle because the readiness probe closes over it.
-const sql = postgres(env.databaseUrl, {
+const poolOptions = {
   max: env.databasePoolMax,
   // postgres.js writes notices to stderr as unstructured text by default, which is how a
   // connection string ends up in a log the collector cannot parse.
   onnotice: () => {},
+}
+const sql = postgres(env.databaseUrl, poolOptions)
+
+// ── ONE HANDLE PER NETWORK THIS DEPLOYMENT SERVES ────────────────────────────────────────────
+//
+// `AGORA_DATABASE_URL_TESTNET` unset is the single-network case, which is every deployment until
+// the consolidation reaches this service. `networkSql` then holds one handle and REFUSES a testnet
+// request rather than answering it out of mainnet rows — micro-deploy
+// `docs/network-consolidation.md` §2.2. The refusal is the point: substituting the other network's
+// handle is a query that succeeds and returns plausible rows.
+const sqlTestnet = env.databaseUrlTestnet ? postgres(env.databaseUrlTestnet, poolOptions) : undefined
+const networks = networkSql({
+  mainnet: sql as unknown as DbSql,
+  ...(sqlTestnet ? { testnet: sqlTestnet as unknown as DbSql } : {}),
 })
 
 // 4. Assert the schema. This does NOT migrate. Failing here rather than serving is the point: see
@@ -197,7 +211,11 @@ const server = createServer({
   logger,
   metrics,
   verifier,
-  sql: db,
+  // The SELECTOR, not a handle. The five domain dep objects below keep their boot-time `db` as a
+  // placeholder; `forRequest` in server.ts replaces every one of them with the handle for the
+  // request's network before any route runs.
+  sql: networks,
+  ...(env.singleNetwork ? { singleNetwork: env.singleNetwork as 'mainnet' | 'testnet' } : {}),
   producer: SERVICE,
   posts,
   circles: { sql: db, producer: SERVICE },

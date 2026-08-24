@@ -64,6 +64,8 @@ import {
 } from '@cloudsforge/auth'
 import type { Lifecycle } from '@cloudsforge/lifecycle'
 import { Metrics, newRequestId, type Logger } from '@cloudsforge/telemetry'
+import { NetworkUnknownError, requestNetwork, type Network } from '@cloudsforge/http'
+import type { NetworkSql } from '@cloudsforge/db'
 import type { JobQueue } from '@cloudsforge/jobs'
 import { SIGNATURE_HEADER, signEvent, withInbox, withOutbox, type Db } from './outbox.ts'
 import { RateLimitError } from './ratelimit.ts'
@@ -202,7 +204,22 @@ export interface ServerDeps {
   readonly logger: Logger
   readonly metrics: Metrics
   readonly verifier: PrincipalVerifier
-  readonly sql: Db
+  /**
+   * The per-network selector, NOT a handle.
+   *
+   * Deliberately not a `Db`: a route reaching for `deps.sql` would read whichever network this
+   * process happened to open. `NetworkSql` has no query methods, so that mistake does not compile.
+   * Routes use `ctx.sql`; the five domain dep objects are rebuilt per request by `forRequest`.
+   */
+  readonly sql: NetworkSql
+  /**
+   * The network to assume when no `CF-Network` arrives, or `undefined` to refuse.
+   *
+   * `CF_NETWORK_SINGLE`, for `pnpm dev`, which has no gateway in front of it. Unset in production,
+   * where an unstamped request is a routing fault and guessing turns it into a silent
+   * cross-network write.
+   */
+  readonly singleNetwork?: Network
   readonly producer: string
   readonly posts: PostDeps
   readonly circles: CircleDeps
@@ -364,6 +381,24 @@ interface RequestContext {
   readonly requestId: string
   readonly log: Logger
   readonly params: Readonly<Record<string, string>>
+  /**
+   * The network THIS REQUEST belongs to, from the `CF-Network` header the gateway stamped.
+   *
+   * Not a property of the process. One agora serves both estates since the network consolidation
+   * (micro-deploy `docs/network-consolidation.md`), so "which network am I" has no answer and
+   * "which network is this request" has exactly one.
+   */
+  readonly network: Network
+  /**
+   * The database handle for `network`, resolved ONCE, at the edge of the request.
+   *
+   * There are twenty-five direct uses and five domain dep objects downstream, and a boundary
+   * enforced at thirty places has thirty chances to be wrong — each one a route reading mainnet
+   * rows while serving a testnet reader, a query that SUCCEEDS and says nothing. Resolving once
+   * and handing the result down makes the wrong thing unspellable: `deps.sql` is a `NetworkSql`
+   * and has no query methods at all.
+   */
+  readonly sql: Db
 }
 
 interface Route {
@@ -436,27 +471,57 @@ export function createServer(deps: ServerDeps): Server {
     inFlight += 1
     deps.metrics.set('http_requests_in_flight', inFlight)
 
-    const finish = (status: number) => {
+    const finish = (status: number, metricNetwork: string) => {
       inFlight -= 1
       deps.metrics.set('http_requests_in_flight', inFlight)
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6
+      // `network` on every series. Prometheus labelled it per TARGET, which distinguishes nothing
+      // once one target serves both estates — micro-org#398 in a form where the information would
+      // never have been recorded at all.
       deps.metrics.increment('http_requests_total', {
         method,
         route: routeLabel,
         status: String(status),
+        network: metricNetwork,
       })
-      deps.metrics.observe('http_request_duration_ms', durationMs, { method, route: routeLabel })
+      deps.metrics.observe('http_request_duration_ms', durationMs, {
+        method,
+        route: routeLabel,
+        network: metricNetwork,
+      })
     }
 
-    void handle(matched, { req, url, requestId, log, params }, deps)
+    // ── THE NETWORK, THEN THE HANDLE, BEFORE ANY ROUTE RUNS ──────────────────────────────────
+    //
+    // `requestNetwork` REFUSES an unstamped request rather than assuming mainnet. A 500 here is a
+    // routing fault made loud; the alternative is a misrouted testnet write landing in mainnet as
+    // an ordinary-looking row that nothing will ever flag.
+    let network: Network
+    try {
+      network = requestNetwork(req.headers, deps.singleNetwork ? { fallback: deps.singleNetwork } : {})
+    } catch (err) {
+      log.error('request carries no usable network', {
+        err: err instanceof NetworkUnknownError ? err.message : err,
+      })
+      send(
+        res,
+        errorReply(500, 'network_unknown', 'this request could not be attributed to a network', requestId),
+        requestId,
+      )
+      finish(500, 'unknown')
+      return
+    }
+
+    const sql = deps.sql.for(network) as unknown as Db
+    void handle(matched, { req, url, requestId, log, params, network, sql }, forRequest(deps, sql))
       .then((reply) => {
         send(res, reply, requestId)
-        finish(reply.status)
+        finish(reply.status, network)
       })
       .catch((err: unknown) => {
         log.error('request handler threw after mapping', { err })
         send(res, errorReply(500, 'internal', 'the request could not be completed', requestId), requestId)
-        finish(500)
+        finish(500, network)
       })
   })
 }
@@ -657,7 +722,7 @@ function buildRoutes(): Route[] {
 
       const done = deps.lifecycle.track()
       try {
-        const outcome = await withInbox(deps.sql, topic, eventId, async (tx) =>
+        const outcome = await withInbox(ctx.sql, topic, eventId, async (tx) =>
           eraseSubject(tx, subject),
         )
         if (outcome.status === 'duplicate') return { status: 200, body: { status: 'duplicate' } }
@@ -675,10 +740,10 @@ function buildRoutes(): Route[] {
     define('GET', '/v1/me', async (ctx, deps) => {
       const me = await requireVoice(ctx, deps)
       const [counts, prefs, notifications, whispers] = await Promise.all([
-        countsFor(deps.sql, me.id),
-        prefsFor(deps.sql, me.id),
-        unreadNotifications(deps.sql, me.id),
-        unreadWhispers(deps.sql, me.id),
+        countsFor(ctx.sql, me.id),
+        prefsFor(ctx.sql, me.id),
+        unreadNotifications(ctx.sql, me.id),
+        unreadWhispers(ctx.sql, me.id),
       ])
       return {
         status: 200,
@@ -696,7 +761,7 @@ function buildRoutes(): Route[] {
     define('PATCH', '/v1/me', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
       const body = await readJson(ctx.req)
-      const voice = await updateVoice(voiceDeps(deps), subject, readVoiceInput(body), ctx.requestId)
+      const voice = await updateVoice(voiceDeps(ctx.sql, deps), subject, readVoiceInput(body), ctx.requestId)
       return { status: 200, body: { voice: voiceWire(voice, deps.studioPublicUrl) } }
     }),
 
@@ -721,7 +786,7 @@ function buildRoutes(): Route[] {
 
     define('GET', '/v1/me/circles', async (ctx, deps) => {
       const me = await requireVoice(ctx, deps)
-      const circles = await myCircles(deps.sql, me.id)
+      const circles = await myCircles(ctx.sql, me.id)
       return { status: 200, body: { circles: circles.map((c) => circleWire(c, deps.studioPublicUrl)) } }
     }),
 
@@ -767,8 +832,8 @@ function buildRoutes(): Route[] {
       return { status: 200, body: pageWire(page, deps.studioPublicUrl) }
     }),
 
-    define('GET', '/v1/tags/active', async (_ctx, deps) => {
-      const tags = await activeTags(deps.sql, 12)
+    define('GET', '/v1/tags/active', async (ctx, _deps) => {
+      const tags = await activeTags(ctx.sql, 12)
       return { status: 200, body: { tags } }
     }),
 
@@ -840,7 +905,7 @@ function buildRoutes(): Route[] {
 
     define('GET', '/v1/posts/:id', async (ctx, deps) => {
       const viewerId = await optionalViewerId(ctx, deps)
-      const post = await readPost(deps.sql, uuidParam(ctx, 'id'), viewerId)
+      const post = await readPost(ctx.sql, uuidParam(ctx, 'id'), viewerId)
       if (!post) throw new PostNotFoundError()
       return { status: 200, body: { post: postWire(post, deps.studioPublicUrl) } }
     }),
@@ -848,7 +913,7 @@ function buildRoutes(): Route[] {
     define('GET', '/v1/posts/:id/thread', async (ctx, deps) => {
       const viewerId = await optionalViewerId(ctx, deps)
       const id = uuidParam(ctx, 'id')
-      const root = await readPost(deps.sql, id, viewerId)
+      const root = await readPost(ctx.sql, id, viewerId)
       if (!root) throw new PostNotFoundError()
       // The thread hangs off the ROOT, so asking for a reply in the middle returns the whole
       // conversation rather than the tail of it. A reader who followed a link to a reply needs
@@ -903,7 +968,7 @@ function buildRoutes(): Route[] {
     /* ------------------------------------------------------------------ voices */
 
     define('GET', '/v1/voices', async (ctx, deps) => {
-      const page = await listVoices(deps.sql, {
+      const page = await listVoices(ctx.sql, {
         ...(ctx.url.searchParams.get('q') ? { query: ctx.url.searchParams.get('q') as string } : {}),
         limit: readLimit(ctx, deps),
         cursor: ctx.url.searchParams.get('cursor'),
@@ -919,18 +984,18 @@ function buildRoutes(): Route[] {
 
     define('GET', '/v1/voices/:ref', async (ctx, deps) => {
       const viewerId = await optionalViewerId(ctx, deps)
-      const voice = await resolveVoice(deps, ctx.params['ref'] ?? '')
+      const voice = await resolveVoice(ctx.sql, ctx.params['ref'] ?? '')
       const wire: Record<string, unknown> = { voice: voiceWire(voice, deps.studioPublicUrl) }
       if (viewerId && viewerId !== voice.id) {
-        wire['relationship'] = await relationship(deps.sql, viewerId, voice.id)
+        wire['relationship'] = await relationship(ctx.sql, viewerId, voice.id)
       }
-      if (viewerId === voice.id) wire['counts'] = await countsFor(deps.sql, voice.id)
+      if (viewerId === voice.id) wire['counts'] = await countsFor(ctx.sql, voice.id)
       return { status: 200, body: wire }
     }),
 
     define('GET', '/v1/voices/:ref/posts', async (ctx, deps) => {
       const viewerId = await optionalViewerId(ctx, deps)
-      const voice = await resolveVoice(deps, ctx.params['ref'] ?? '')
+      const voice = await resolveVoice(ctx.sql, ctx.params['ref'] ?? '')
       const page = await byVoice(deps.posts, voice.id, {
         viewerId,
         limit: readLimit(ctx, deps),
@@ -942,16 +1007,16 @@ function buildRoutes(): Route[] {
 
     define('PUT', '/v1/voices/:ref/follow', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const target = await resolveVoice(deps, ctx.params['ref'] ?? '')
-      const result = await follow(voiceDeps(deps), subject, target.id, ctx.requestId)
+      const target = await resolveVoice(ctx.sql, ctx.params['ref'] ?? '')
+      const result = await follow(voiceDeps(ctx.sql, deps), subject, target.id, ctx.requestId)
       if (result.created) deps.metrics.increment('agora_follows_total', { state: result.state })
       return { status: 200, body: { state: result.state, created: result.created } }
     }),
 
     define('DELETE', '/v1/voices/:ref/follow', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const target = await resolveVoice(deps, ctx.params['ref'] ?? '')
-      await unfollow(voiceDeps(deps), subject, target.id)
+      const target = await resolveVoice(ctx.sql, ctx.params['ref'] ?? '')
+      await unfollow(voiceDeps(ctx.sql, deps), subject, target.id)
       return { status: 204 }
     }),
 
@@ -964,54 +1029,54 @@ function buildRoutes(): Route[] {
      */
     define('PUT', '/v1/follow-requests/:ref', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const requester = await resolveVoice(deps, ctx.params['ref'] ?? '')
+      const requester = await resolveVoice(ctx.sql, ctx.params['ref'] ?? '')
       const body = await readJson(ctx.req)
       const admit = readBool(body['admit'], 'admit')
       const changed = admit
-        ? await acceptFollow(voiceDeps(deps), subject, requester.id)
-        : await rejectFollow(voiceDeps(deps), subject, requester.id)
+        ? await acceptFollow(voiceDeps(ctx.sql, deps), subject, requester.id)
+        : await rejectFollow(voiceDeps(ctx.sql, deps), subject, requester.id)
       return { status: 200, body: { changed } }
     }),
 
     define('PUT', '/v1/voices/:ref/bar', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const target = await resolveVoice(deps, ctx.params['ref'] ?? '')
-      const created = await bar(voiceDeps(deps), subject, target.id, ctx.requestId)
+      const target = await resolveVoice(ctx.sql, ctx.params['ref'] ?? '')
+      const created = await bar(voiceDeps(ctx.sql, deps), subject, target.id, ctx.requestId)
       return { status: 200, body: { barred: true, created } }
     }),
 
     define('DELETE', '/v1/voices/:ref/bar', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const target = await resolveVoice(deps, ctx.params['ref'] ?? '')
-      await unbar(voiceDeps(deps), subject, target.id)
+      const target = await resolveVoice(ctx.sql, ctx.params['ref'] ?? '')
+      await unbar(voiceDeps(ctx.sql, deps), subject, target.id)
       return { status: 204 }
     }),
 
     define('PUT', '/v1/voices/:ref/hush', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const target = await resolveVoice(deps, ctx.params['ref'] ?? '')
+      const target = await resolveVoice(ctx.sql, ctx.params['ref'] ?? '')
       const body = await readJson(ctx.req)
-      await hush(voiceDeps(deps), subject, target.id, readDate(body['expiresAt']))
+      await hush(voiceDeps(ctx.sql, deps), subject, target.id, readDate(body['expiresAt']))
       return { status: 200, body: { hushed: true } }
     }),
 
     define('DELETE', '/v1/voices/:ref/hush', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const target = await resolveVoice(deps, ctx.params['ref'] ?? '')
-      await unhush(voiceDeps(deps), subject, target.id)
+      const target = await resolveVoice(ctx.sql, ctx.params['ref'] ?? '')
+      await unhush(voiceDeps(ctx.sql, deps), subject, target.id)
       return { status: 204 }
     }),
 
     define('PUT', '/v1/tags/:tag/hush', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
       const body = await readJson(ctx.req)
-      await hushTag(voiceDeps(deps), subject, ctx.params['tag'] ?? '', readDate(body['expiresAt']))
+      await hushTag(voiceDeps(ctx.sql, deps), subject, ctx.params['tag'] ?? '', readDate(body['expiresAt']))
       return { status: 200, body: { hushed: true } }
     }),
 
     define('DELETE', '/v1/tags/:tag/hush', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      await unhushTag(voiceDeps(deps), subject, ctx.params['tag'] ?? '')
+      await unhushTag(voiceDeps(ctx.sql, deps), subject, ctx.params['tag'] ?? '')
       return { status: 204 }
     }),
 
@@ -1019,7 +1084,7 @@ function buildRoutes(): Route[] {
 
     define('GET', '/v1/circles', async (ctx, deps) => {
       const viewerId = await optionalViewerId(ctx, deps)
-      const circles = await listCircles(deps.sql, {
+      const circles = await listCircles(ctx.sql, {
         ...(ctx.url.searchParams.get('q') ? { query: ctx.url.searchParams.get('q') as string } : {}),
         viewerId,
         limit: readLimit(ctx, deps),
@@ -1051,14 +1116,14 @@ function buildRoutes(): Route[] {
 
     define('GET', '/v1/circles/:ref', async (ctx, deps) => {
       const viewerId = await optionalViewerId(ctx, deps)
-      const circle = await findCircle(deps.sql, ctx.params['ref'] ?? '', viewerId)
+      const circle = await findCircle(ctx.sql, ctx.params['ref'] ?? '', viewerId)
       if (!circle) throw new CircleNotFoundError()
       return { status: 200, body: { circle: circleWire(circle, deps.studioPublicUrl) } }
     }),
 
     define('PATCH', '/v1/circles/:ref', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const circle = await requireCircle(deps, ctx.params['ref'] ?? '', null)
+      const circle = await requireCircle(ctx.sql, ctx.params['ref'] ?? '', null)
       const body = await readJson(ctx.req)
       const updated = await updateCircle(deps.circles, subject, circle.id, {
         ...(body['name'] !== undefined ? { name: String(body['name']) } : {}),
@@ -1076,13 +1141,13 @@ function buildRoutes(): Route[] {
 
     define('GET', '/v1/circles/:ref/members', async (ctx, deps) => {
       const viewerId = await optionalViewerId(ctx, deps)
-      const circle = await requireCircle(deps, ctx.params['ref'] ?? '', viewerId)
+      const circle = await requireCircle(ctx.sql, ctx.params['ref'] ?? '', viewerId)
       // A stranger asking for the roster of a members-only circle gets the 404 a nonexistent
       // circle gets. See the file header: a 403 here confirms there are members worth hiding.
-      if (!(await canRead(deps.sql, circle, viewerId))) throw new CircleNotFoundError()
+      if (!(await canRead(ctx.sql, circle, viewerId))) throw new CircleNotFoundError()
       const state = ctx.url.searchParams.get('state')
       const members = await listMembers(
-        deps.sql,
+        ctx.sql,
         circle.id,
         viewerId,
         state && MEMBER_STATES.has(state as MemberState) ? (state as MemberState) : 'active',
@@ -1092,8 +1157,8 @@ function buildRoutes(): Route[] {
 
     define('GET', '/v1/circles/:ref/posts', async (ctx, deps) => {
       const viewerId = await optionalViewerId(ctx, deps)
-      const circle = await requireCircle(deps, ctx.params['ref'] ?? '', viewerId)
-      if (!(await canRead(deps.sql, circle, viewerId))) throw new CircleNotFoundError()
+      const circle = await requireCircle(ctx.sql, ctx.params['ref'] ?? '', viewerId)
+      if (!(await canRead(ctx.sql, circle, viewerId))) throw new CircleNotFoundError()
       const page = await byCircle(deps.posts, circle.id, {
         viewerId,
         limit: readLimit(ctx, deps),
@@ -1104,14 +1169,14 @@ function buildRoutes(): Route[] {
 
     define('PUT', '/v1/circles/:ref/membership', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const circle = await requireCircle(deps, ctx.params['ref'] ?? '', null)
+      const circle = await requireCircle(ctx.sql, ctx.params['ref'] ?? '', null)
       const result = await joinCircle(deps.circles, subject, circle.id)
       return { status: 200, body: { state: result.state, created: result.created } }
     }),
 
     define('DELETE', '/v1/circles/:ref/membership', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const circle = await requireCircle(deps, ctx.params['ref'] ?? '', null)
+      const circle = await requireCircle(ctx.sql, ctx.params['ref'] ?? '', null)
       const left = await leaveCircle(deps.circles, subject, circle.id)
       return { status: left ? 204 : 404, ...(left ? {} : { body: { error: { code: 'not_found' } } }) }
     }),
@@ -1124,8 +1189,8 @@ function buildRoutes(): Route[] {
      */
     define('PUT', '/v1/circles/:ref/members/:voice', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const circle = await requireCircle(deps, ctx.params['ref'] ?? '', null)
-      const target = await resolveVoice(deps, ctx.params['voice'] ?? '')
+      const circle = await requireCircle(ctx.sql, ctx.params['ref'] ?? '', null)
+      const target = await resolveVoice(ctx.sql, ctx.params['voice'] ?? '')
       const body = await readJson(ctx.req)
       const action = requireString(body, 'action')
 
@@ -1147,8 +1212,8 @@ function buildRoutes(): Route[] {
 
     define('DELETE', '/v1/circles/:ref/members/:voice', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
-      const circle = await requireCircle(deps, ctx.params['ref'] ?? '', null)
-      const target = await resolveVoice(deps, ctx.params['voice'] ?? '')
+      const circle = await requireCircle(ctx.sql, ctx.params['ref'] ?? '', null)
+      const target = await resolveVoice(ctx.sql, ctx.params['voice'] ?? '')
       const ban = ctx.url.searchParams.get('ban') === 'true'
       const changed = await removeMember(deps.circles, subject, circle.id, target.id, ban)
       return { status: 200, body: { changed, banned: ban && changed } }
@@ -1165,7 +1230,7 @@ function buildRoutes(): Route[] {
     define('POST', '/v1/whispers', async (ctx, deps) => {
       const subject = await requireSubject(ctx, deps)
       const body = await readJson(ctx.req)
-      const target = await resolveVoice(deps, requireString(body, 'to'))
+      const target = await resolveVoice(ctx.sql, requireString(body, 'to'))
       const whisper = await sendWhisper(
         deps.whispers,
         subject,
@@ -1266,7 +1331,7 @@ function buildRoutes(): Route[] {
     define('GET', '/v1/moderation/reports', async (ctx, deps) => {
       await requireOperator(ctx, deps)
       const state = ctx.url.searchParams.get('state')
-      const reports = await listReports(deps.sql, {
+      const reports = await listReports(ctx.sql, {
         ...(state && REPORT_STATES.has(state as ReportState) ? { state: state as ReportState } : {}),
         limit: readLimit(ctx, deps),
       })
@@ -1299,7 +1364,7 @@ function buildRoutes(): Route[] {
       await requireOperator(ctx, deps)
       const kind = ctx.params['kind'] ?? ''
       if (!SUBJECT_KINDS.has(kind as SubjectKind)) throw new BadRequestError('unknown subject kind')
-      const history = await historyFor(deps.sql, kind as SubjectKind, uuidParam(ctx, 'id'))
+      const history = await historyFor(ctx.sql, kind as SubjectKind, uuidParam(ctx, 'id'))
       return {
         status: 200,
         body: {
@@ -1528,14 +1593,46 @@ function assetUrl(base: string, assetId: string | null): string | null {
   return `${base}/v1/assets/${assetId}/bytes`
 }
 
+/**
+ * The deps a REQUEST sees: the process's deps, with every database handle replaced by the one
+ * belonging to this request's network.
+ *
+ * ── WHY THIS EXISTS, AND WHY IT IS SIX LINES RATHER THAN A REWRITE ────────────────────────────
+ *
+ * The five domain dep objects — `posts`, `circles`, `whispers`, `notifications`, `moderation` —
+ * are built once at boot and each closes over a database handle. Thirty-two route sites read
+ * them. Under one-pod-serves-both (micro-deploy `docs/network-consolidation.md`) a handle chosen
+ * at startup is the wrong handle for half the traffic, and the failure is silent: the query
+ * succeeds against the other network's rows and returns something plausible.
+ *
+ * They are PLAIN IMMUTABLE RECORDS, though, so the fix is to rebuild them rather than to
+ * restructure how the service composes. One spread per object, once per request, and every one of
+ * those thirty-two sites is correct without being touched — the same argument the apex
+ * consolidation made for composing at the accessor instead of at every call site.
+ *
+ * Cheap on purpose: five shallow copies of small records, on a path that is about to do IO.
+ */
+function forRequest(deps: ServerDeps, sql: Db): ServerDeps {
+  return {
+    ...deps,
+    posts: { ...deps.posts, sql },
+    circles: { ...deps.circles, sql },
+    whispers: { ...deps.whispers, sql },
+    notifications: { ...deps.notifications, sql },
+    moderation: { ...deps.moderation, sql },
+  }
+}
+
 /* ------------------------------------------------------------------ helpers */
 
-function voiceDeps(deps: ServerDeps): {
+function voiceDeps(sql: Db, deps: ServerDeps): {
   sql: Db
   producer: string
   followsPerHour: number
 } {
-  return { sql: deps.sql, producer: deps.producer, followsPerHour: deps.followsPerHour }
+  // `sql` FIRST and separate from `deps`, so it reads as a property of the request rather than of
+  // the process. See `RequestContext.sql`.
+  return { sql, producer: deps.producer, followsPerHour: deps.followsPerHour }
 }
 
 async function authenticate(ctx: RequestContext, deps: ServerDeps): Promise<Principal> {
@@ -1569,7 +1666,7 @@ async function requireSubject(ctx: RequestContext, deps: ServerDeps): Promise<st
  */
 async function requireVoice(ctx: RequestContext, deps: ServerDeps): Promise<Voice> {
   const subject = await requireSubject(ctx, deps)
-  return withOutbox(deps.sql, deps.producer, async (tx) => ensureVoice(tx, subject))
+  return withOutbox(ctx.sql, deps.producer, async (tx) => ensureVoice(tx, subject))
 }
 
 /**
@@ -1583,7 +1680,7 @@ async function requireVoice(ctx: RequestContext, deps: ServerDeps): Promise<Voic
 async function optionalViewerId(ctx: RequestContext, deps: ServerDeps): Promise<string | null> {
   if (!headerOf(ctx.req, 'authorization')) return null
   const subject = await requireSubject(ctx, deps)
-  const voice = await findVoiceBySubject(deps.sql, subject)
+  const voice = await findVoiceBySubject(ctx.sql, subject)
   return voice ? voice.id : null
 }
 
@@ -1602,22 +1699,22 @@ async function requireOperator(ctx: RequestContext, deps: ServerDeps): Promise<s
 }
 
 /** A voice named by handle or by id. The two are interchangeable everywhere a voice is named. */
-async function resolveVoice(deps: ServerDeps, ref: string): Promise<Voice> {
+async function resolveVoice(sql: Db, ref: string): Promise<Voice> {
   const trimmed = ref.trim()
   const voice = UUID.test(trimmed)
-    ? await findVoice(deps.sql, trimmed)
-    : await findVoiceByHandle(deps.sql, trimmed)
+    ? await findVoice(sql, trimmed)
+    : await findVoiceByHandle(sql, trimmed)
   if (!voice) throw new NotFoundError('no such voice')
   return voice
 }
 
 /** A circle named by slug or by id, with the viewer's standing attached. */
 async function requireCircle(
-  deps: ServerDeps,
+  sql: Db,
   ref: string,
   viewerId: string | null,
 ): Promise<Circle> {
-  const circle = await findCircle(deps.sql, ref.trim(), viewerId)
+  const circle = await findCircle(sql, ref.trim(), viewerId)
   if (!circle) throw new CircleNotFoundError()
   return circle
 }
