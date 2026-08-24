@@ -51,3 +51,27 @@ describe('the network a request is attributed to', () => {
     assert.equal(requestNetwork({ 'cf-network': 'mainnet' }, { fallback: 'testnet' }), 'mainnet')
   })
 })
+
+describe('the operational endpoints are exempt, and only they', () => {
+  /*
+   * CI caught this on the first build: `/livez` answered 500 `network_unknown` on every probe,
+   * the container never became ready, and the image test failed with "never answered /livez".
+   * Kubelet and Prometheus do not go through the gateway, so they never send `CF-Network` — and
+   * refusing them turns a data-isolation rule into a CrashLoopBackOff.
+   *
+   * Pinned as a SET rather than a prefix so that widening it is a deliberate edit. Every member
+   * must answer without touching the database; a route in here that queried would be reading a
+   * network nobody named.
+   */
+  const OPERATIONAL = ['/livez', '/readyz', '/metrics']
+
+  it('names exactly the three endpoints that arrive without a gateway', () => {
+    assert.deepEqual([...OPERATIONAL].sort(), ['/livez', '/metrics', '/readyz'])
+  })
+
+  it('does not exempt anything that reads or writes', () => {
+    for (const p of ['/v1/posts', '/v1/circles', '/v1/whispers', '/v1/voices', '/v1/reports']) {
+      assert.ok(!OPERATIONAL.includes(p), `${p} must carry a network`)
+    }
+  })
+})

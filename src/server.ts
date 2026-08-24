@@ -401,6 +401,16 @@ interface RequestContext {
   readonly sql: Db
 }
 
+/**
+ * Routes that answer without belonging to a network.
+ *
+ * Kubelet probes the first two and Prometheus scrapes the third; none arrives through the gateway,
+ * so none carries `CF-Network`. Three literal paths rather than a prefix or an opt-in flag: this is
+ * an exemption from a data-isolation boundary, and it should take a deliberate edit here to widen
+ * it. None of the three queries the database.
+ */
+const OPERATIONAL_ROUTES: ReadonlySet<string> = new Set(['/livez', '/readyz', '/metrics'])
+
 interface Route {
   readonly method: string
   /** Used verbatim as the metric label, so cardinality is bounded by the number of routes. */
@@ -496,9 +506,26 @@ export function createServer(deps: ServerDeps): Server {
     // `requestNetwork` REFUSES an unstamped request rather than assuming mainnet. A 500 here is a
     // routing fault made loud; the alternative is a misrouted testnet write landing in mainnet as
     // an ordinary-looking row that nothing will ever flag.
+    //
+    // ── EXCEPT FOR THE OPERATIONAL ENDPOINTS, AND THAT IS NOT A LOOPHOLE ──────────────────────
+    //
+    // `/livez`, `/readyz` and `/metrics` are probed by KUBELET and scraped by PROMETHEUS. Neither
+    // goes through the gateway, so neither carries `CF-Network` and neither ever will. Refusing
+    // them makes every health probe a 500, the pod never becomes ready, and the deployment
+    // CrashLoopBackOffs — which is exactly what CI caught on the first build of this change.
+    //
+    // They are safe to exempt because none of them touches the database: they answer from the
+    // Lifecycle and the metrics registry. `ctx.sql` is still populated for them, from a network
+    // they did not name, so the exemption is narrow by construction — a route added to this set
+    // that DID query would be reading an arbitrary network, which is why the set is three literal
+    // paths rather than a prefix or a flag anyone can set.
+    const networkless = matched !== undefined && OPERATIONAL_ROUTES.has(matched.path)
+
     let network: Network
     try {
-      network = requestNetwork(req.headers, deps.singleNetwork ? { fallback: deps.singleNetwork } : {})
+      network = networkless
+        ? (deps.singleNetwork ?? deps.sql.networks[0] ?? 'mainnet')
+        : requestNetwork(req.headers, deps.singleNetwork ? { fallback: deps.singleNetwork } : {})
     } catch (err) {
       log.error('request carries no usable network', {
         err: err instanceof NetworkUnknownError ? err.message : err,
