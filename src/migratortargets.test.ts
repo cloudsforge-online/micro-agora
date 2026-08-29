@@ -44,6 +44,13 @@ import {
 import { MIGRATIONS as POLICY_MIGRATIONS, TABLES as POLICY_TABLES } from './policy/migrations.ts'
 import { MIGRATIONS as PRICING_MIGRATIONS, TABLES as PRICING_TABLES } from './pricing/migrations.ts'
 import { MIGRATIONS as STUDIO_MIGRATIONS, TABLES as STUDIO_TABLES } from './studio/migrations.ts'
+import { MIGRATIONS as COMMUNITY_MIGRATIONS, TABLES as COMMUNITY_TABLES } from './community/migrations.ts'
+import { MIGRATIONS as MARKET_MIGRATIONS, TABLES as MARKET_TABLES } from './market/migrations.ts'
+import { MIGRATIONS as BILLING_MIGRATIONS, TABLES as BILLING_TABLES } from './billing/migrations.ts'
+import { MIGRATIONS as MINT_MIGRATIONS, TABLES as MINT_TABLES } from './mint/migrations.ts'
+import { MIGRATIONS as FORESIGHT_MIGRATIONS, TABLES as FORESIGHT_TABLES } from './foresight/migrations.ts'
+import { MIGRATIONS as WORLDS_MIGRATIONS, TABLES as WORLDS_TABLES } from './worlds/migrations.ts'
+import { MIGRATIONS as TESSERA_MIGRATIONS, TABLES as TESSERA_TABLES } from './tessera/migrations.ts'
 
 /** A DSN assembled rather than written, so this file holds no string shaped like a credential. */
 function dsn(host: string, port: number | '', database: string): string {
@@ -196,9 +203,16 @@ const LEDGERS = [
   ['policy', POLICY_MIGRATIONS, POLICY_TABLES],
   ['pricing', PRICING_MIGRATIONS, PRICING_TABLES],
   ['studio', STUDIO_MIGRATIONS, STUDIO_TABLES],
+  ['community', COMMUNITY_MIGRATIONS, COMMUNITY_TABLES],
+  ['market', MARKET_MIGRATIONS, MARKET_TABLES],
+  ['billing', BILLING_MIGRATIONS, BILLING_TABLES],
+  ['mint', MINT_MIGRATIONS, MINT_TABLES],
+  ['foresight', FORESIGHT_MIGRATIONS, FORESIGHT_TABLES],
+  ['worlds', WORLDS_MIGRATIONS, WORLDS_TABLES],
+  ['tessera', TESSERA_MIGRATIONS, TESSERA_TABLES],
 ] as const
 
-describe('the five ledgers cannot interfere even once the databases are right', () => {
+describe('the twelve ledgers cannot interfere even once the databases are right', () => {
   it('every module takes a different advisory lock', () => {
     // Distinct locks are only SAFE because the databases are distinct — see `assertDistinct`. They
     // are asserted here because equal ones would be the other failure: one module's migration
@@ -232,9 +246,22 @@ describe('the five ledgers cannot interfere even once the databases are right', 
     }
     assert.deepEqual(
       LEDGERS.map(([name, migrations]) => `${name}:${migrations.length}`),
-      ['agora:12', 'devplatform:10', 'policy:8', 'pricing:5', 'studio:11'],
+      [
+        'agora:12',
+        'devplatform:10',
+        'policy:8',
+        'pricing:5',
+        'studio:11',
+        'community:9',
+        'market:14',
+        'billing:13',
+        'mint:8',
+        'foresight:13',
+        'worlds:11',
+        'tessera:15',
+      ],
       'the migration counts changed. That is ordinary; update the list. It is pinned so that an ' +
-        'import resolving to the WRONG module — five near-identical file names, four of them one ' +
+        'import resolving to the WRONG module — twelve near-identical file names, eleven of them one ' +
         'directory apart — is a red test rather than a matrix computed twice over one schema.',
     )
   })
@@ -260,7 +287,34 @@ describe('the five ledgers cannot interfere even once the databases are right', 
      * between test files and a case passes because of something the previous file left behind.
      * ════════════════════════════════════════════════════════════════════════════════════════
      */
-    const OMITS_JOBS: ReadonlySet<string> = new Set(['agora', 'devplatform'])
+    /*
+     * The createdTables each module's `TABLES` deliberately DOES NOT list, and why.
+     *
+     *   * `jobs` — appended to the truncate string separately in the modules whose testsupport does
+     *     so (agora and devplatform did this in M5a; the six M5b modules that key off the same
+     *     pattern do too). The modules that instead list `jobs` in `TABLES` (policy, pricing,
+     *     studio, billing) have an empty entry here.
+     *   * SEEDED REFERENCE/CONFIG TABLES — these hold rows a MIGRATION seeds and the module's own
+     *     suite relies on, so truncating them between test files would delete the fixture. billing
+     *     seeds its `prices` and `products` catalogue (migrations 9/`seed_catalogue`); foresight
+     *     seeds `stake_assets` (the stakeable-asset registry); tessera seeds `platform_terms` (a
+     *     singleton fee/royalty config). Each is created but intentionally survives a reset, exactly
+     *     as `jobs` does — pinned here so a table that SHOULD be truncated cannot hide among them.
+     */
+    const NOT_IN_TABLES: Record<string, readonly string[]> = {
+      agora: ['jobs'],
+      devplatform: ['jobs'],
+      policy: [],
+      pricing: [],
+      studio: [],
+      community: ['jobs'],
+      market: ['jobs'],
+      billing: ['prices', 'products'],
+      mint: ['jobs'],
+      foresight: ['jobs', 'stake_assets'],
+      worlds: ['jobs'],
+      tessera: ['jobs', 'platform_terms'],
+    }
     for (const [name, migrations, tables] of LEDGERS) {
       const created = createdTables(migrations)
       for (const table of tables) {
@@ -269,20 +323,21 @@ describe('the five ledgers cannot interfere even once the databases are right', 
       const missing = [...created].filter((t) => !(tables as readonly string[]).includes(t)).sort()
       assert.deepEqual(
         missing,
-        OMITS_JOBS.has(name) ? ['jobs'] : [],
-        `${name}'s DDL creates tables TABLES does not list. Every one of them survives a reset ` +
-          'between test files, so a case can pass on rows the previous file left behind.',
+        [...(NOT_IN_TABLES[name] ?? [])].sort(),
+        `${name}'s DDL creates tables TABLES does not list, and they are not the seeded/reference ` +
+          'ones recorded above. Every such table survives a reset between test files, so a case can ' +
+          'pass on rows the previous file left behind.',
       )
       // And every module truncates `jobs` one way or the other, or a lease leaks between files.
       assert.ok(
-        (tables as readonly string[]).includes('jobs') || OMITS_JOBS.has(name),
+        (tables as readonly string[]).includes('jobs') || (NOT_IN_TABLES[name] ?? []).includes('jobs'),
         `${name} neither lists jobs in TABLES nor is recorded as appending it in testsupport`,
       )
       assert.equal(new Set(tables).size, tables.length, `${name} lists a table twice`)
     }
   })
 
-  it('THE MATRIX: `inbox` and `jobs` exist in ALL FIVE schemas, and three more in four of them', () => {
+  it('THE MATRIX: `inbox` and `jobs` exist in ALL TWELVE schemas, and the outbox family in eleven', () => {
     /*
      * ════════════════════════════════════════════════════════════════════════════════════════
      * THE FULL FIVE-WAY MATRIX, COMPUTED. This is the reason `RouteSpec.sql` exists.
@@ -332,11 +387,16 @@ describe('the five ledgers cannot interfere even once the databases are right', 
       .map(([table, names]) => `${table}: ${names.sort().join(', ')}`)
       .sort()
     assert.deepEqual(shared, [
-      'event_subscriptions: agora, devplatform, pricing, studio',
-      'inbox: agora, devplatform, policy, pricing, studio',
-      'jobs: agora, devplatform, policy, pricing, studio',
-      'outbox: agora, devplatform, pricing, studio',
-      'outbox_deliveries: agora, devplatform, pricing, studio',
+      'engagement_grants: market, tessera',
+      'entitlements: billing, tessera',
+      'event_subscriptions: agora, billing, community, devplatform, foresight, market, mint, pricing, studio, tessera, worlds',
+      'idempotency_keys: billing, community, devplatform, foresight, market',
+      'inbox: agora, billing, community, devplatform, foresight, market, mint, policy, pricing, studio, tessera, worlds',
+      'jobs: agora, billing, community, devplatform, foresight, market, mint, policy, pricing, studio, tessera, worlds',
+      'listings: market, tessera',
+      'outbox: agora, billing, community, devplatform, foresight, market, mint, pricing, studio, tessera, worlds',
+      'outbox_deliveries: agora, billing, community, devplatform, foresight, market, mint, pricing, studio, tessera, worlds',
+      'provisions: tessera, worlds',
     ])
 
     // policy is the one module with no outbox family at all — it produces no events, and
@@ -364,6 +424,13 @@ describe('the five ledgers cannot interfere even once the databases are right', 
       policy: 'policy_decisions',
       pricing: 'price_quotes',
       studio: 'brand_kits',
+      community: 'communities',
+      market: 'bids',
+      billing: 'invoices',
+      mint: 'tokens',
+      foresight: 'house_seeds',
+      worlds: 'player_profiles',
+      tessera: 'beacons',
     } as const
     for (const [owner, table] of Object.entries(witnesses) as ReadonlyArray<[string, string]>) {
       assert.ok(sets.get(owner)?.has(table), `${owner} no longer owns ${table}`)

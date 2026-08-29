@@ -1,0 +1,592 @@
+/**
+ * Rewards are money, so the cap is the test.
+ *
+ * The service this supersedes has no cap of any kind and no ledger entry either. These tests are
+ * the two halves of the fix: every reward is a balanced posting, and no season can be spent past.
+ */
+
+import assert from 'node:assert/strict'
+import test, { after, before, beforeEach } from 'node:test'
+import type postgres from 'postgres'
+import {
+  BudgetExceededError,
+  BudgetRaiseNeedsApprovalError,
+  defineAchievement,
+  findSeason,
+  grantReward,
+  listUnlocked,
+  openSeason,
+  seasonBudget,
+  unlockAchievement,
+  type Season,
+} from './rewards.ts'
+import { registerTitle } from './titles.ts'
+import { LedgerUnavailableError } from './ledgerclient.ts'
+import type { Db } from './outbox.ts'
+import {
+  ALICE,
+  BOB,
+  enabled,
+  fakeLedger,
+  migrateTestDb,
+  openDb,
+  resetWorlds,
+  skip,
+  type FakeLedger,
+} from './testsupport.ts'
+
+let sql: postgres.Sql
+let db: Db
+let ledger: FakeLedger
+
+before(async () => {
+  if (!enabled) return
+  sql = openDb()
+  db = sql as unknown as Db
+  await migrateTestDb(sql)
+})
+
+beforeEach(async () => {
+  if (!enabled) return
+  await resetWorlds(sql)
+  ledger = fakeLedger()
+})
+
+after(async () => {
+  if (!enabled) return
+  await sql.end({ timeout: 5 })
+})
+
+async function aTitle(slug = 'ashfall'): Promise<string> {
+  const title = await registerTitle(db, 'worlds', {
+    slug,
+    name: slug,
+    status: 'live',
+    serviceUrl: 'http://127.0.0.1:9001',
+    capabilities: ['achievements', 'seasons'],
+    assetScopes: [],
+    actor: 'operator:test',
+    correlationId: 'req-1',
+  })
+  return title.id
+}
+
+async function aSeason(budget = 1_000n): Promise<string> {
+  const titleId = await aTitle()
+  const season = await openSeason(db, {
+    titleId,
+    slug: 's1',
+    name: 'Season One',
+    startsAt: new Date('2026-01-01T00:00:00Z'),
+    endsAt: new Date('2026-04-01T00:00:00Z'),
+    rewardBudgetWei: budget,
+    status: 'active',
+  })
+  return season.id
+}
+
+const deps = () => ({ sql: db, ledger, producer: 'worlds' })
+
+/* ------------------------------------------------------------------ the posting */
+
+test('a reward is a BALANCED LEDGER POSTING, not a column somewhere', { skip }, async () => {
+  const seasonId = await aSeason()
+  const grant = await grantReward(deps(), {
+    seasonId,
+    userId: ALICE,
+    reason: 'first_blood',
+    amountWei: 100n,
+    actor: `service:worlds`,
+    correlationId: 'req-2',
+  })
+  assert.equal(ledger.entries.length, 1)
+  assert.equal(ledger.entries[0]?.kind, 'reward_granted')
+  const postings = ledger.entries[0]?.postings ?? []
+  assert.equal(postings.length, 2)
+  // The platform GIVES the customer money, so it shows up as a spend the platform can be asked
+  // about rather than as a number that appeared in a player's row — and docs/ecosystem/21 §4
+  // says WHICH spend: the title's engagement account, so the programme is reconstructable from
+  // the ledger alone and "who funds this season's budget" has an answer.
+  //
+  // This assertion used to read `platform` / `expense`, which was a live defect rather than a
+  // preference: micro-market and micro-trade credit the same (platform, SHARD, fees) key as
+  // `revenue`, and the ledger THROWS AccountConflictError on a type disagreement
+  // (ledger/src/accounts.ts) — whichever service posted second would have had every entry
+  // refused. `equity` also denies the account the overdraft exemption that `clearing` and
+  // `suspense` get, so an unfunded engagement account refuses the reward at the ledger.
+  assert.equal(postings[0]?.direction, 'debit')
+  assert.equal(postings[0]?.account.subject, 'engagement:worlds')
+  assert.equal(postings[0]?.account.purpose, 'treasury')
+  assert.equal(postings[0]?.account.type, 'equity')
+  assert.equal(postings[1]?.direction, 'credit')
+  assert.equal(postings[1]?.account.subject, `user:${ALICE}`)
+  assert.equal(postings[0]?.amount, postings[1]?.amount)
+  assert.ok(grant.journalEntryId)
+})
+
+test('BOTH LEGS ARE EMBER — the funding and the payment are one asset', { skip }, async () => {
+  // micro-org#226 in one assertion. These read 'SHARD' until 2026-08-10, which made the entry
+  // unreconstructable in two ways at once: the treasury doc (21 §2) denominates the programme in
+  // EMBER, so the funding side and the spending side named different assets; and SHARD is retired
+  // (contracts-chain RETIRED_ASSETS), so `engagement:worlds` in SHARD can never be funded at all
+  // — the ledger's own retired_asset_guard refuses a SHARD deposit, and `equity` gets no overdraft
+  // exemption. Asserted on BOTH postings rather than on the entry, because an entry whose legs
+  // disagree about the asset is exactly the shape this issue is about.
+  const seasonId = await aSeason()
+  await grantReward(deps(), {
+    seasonId,
+    userId: ALICE,
+    reason: 'first_blood',
+    amountWei: 100n,
+    actor: 'service:worlds',
+    correlationId: 'req-2',
+  })
+  const postings = ledger.entries[0]?.postings ?? []
+  assert.equal(postings[0]?.account.assetCode, 'EMBER')
+  assert.equal(postings[1]?.account.assetCode, 'EMBER')
+})
+
+test('the granted event names the asset it paid in', { skip }, async () => {
+  // A consumer reading an amount with no asset code beside it has to guess, and the guess that
+  // was right before #226 (Shards, 0 decimals) is now wrong by eighteen orders of magnitude.
+  const seasonId = await aSeason()
+  await grantReward(deps(), {
+    seasonId,
+    userId: ALICE,
+    reason: 'first_blood',
+    amountWei: 100n,
+    actor: 'service:worlds',
+    correlationId: 'req-2',
+  })
+  const rows = await sql<{ payload: { assetCode?: string; amountWei?: string } }[]>`
+    select payload from outbox where topic = 'worlds.reward.granted'
+  `
+  assert.equal(rows[0]?.payload.assetCode, 'EMBER')
+  assert.equal(rows[0]?.payload.amountWei, '100')
+})
+
+test('the local record names the entry that paid it', { skip }, async () => {
+  // A reward with no entry is a payment that exists only in this service's opinion.
+  const seasonId = await aSeason()
+  const grant = await grantReward(deps(), {
+    seasonId,
+    userId: ALICE,
+    reason: 'first_blood',
+    amountWei: 100n,
+    actor: 'service:worlds',
+    correlationId: 'req-2',
+  })
+  const rows = await sql<{ journal_entry_id: string }[]>`
+    select journal_entry_id from reward_grants where id = ${grant.id}
+  `
+  assert.equal(rows[0]?.journal_entry_id, grant.journalEntryId)
+})
+
+/* ------------------------------------------------------------------ THE CAP */
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * **A GAME EXPLOIT THAT MINTS REWARDS IS A MONEY INCIDENT.**
+ *
+ * This is the test that says the cap is a control rather than an intention: the loop below is the
+ * exploit — the same reward asked for over and over — and the budget stops it dead. In the frozen
+ * service this loop runs for ever.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+test('a season cannot be spent past its budget, however many times it is asked', { skip }, async () => {
+  const seasonId = await aSeason(250n)
+  for (let i = 0; i < 5; i += 1) {
+    await grantReward(deps(), {
+      seasonId,
+      userId: ALICE,
+      reason: `objective_${i}`,
+      amountWei: 50n,
+      actor: 'service:worlds',
+      correlationId: `req-${i}`,
+    })
+  }
+  // 250 spent, 0 left. The sixth is refused.
+  await assert.rejects(
+    () =>
+      grantReward(deps(), {
+        seasonId,
+        userId: ALICE,
+        reason: 'objective_5',
+        amountWei: 50n,
+        actor: 'service:worlds',
+        correlationId: 'req-5',
+      }),
+    BudgetExceededError,
+  )
+  const budget = await seasonBudget(db, seasonId)
+  assert.equal(budget?.granted, 250n)
+  assert.equal(budget?.remaining, 0n)
+  assert.equal(ledger.entries.length, 5, 'exactly five entries were ever posted')
+})
+
+test('a refused reward asks the ledger for NOTHING', { skip }, async () => {
+  // The cap is charged FIRST, so a grant that cannot be afforded never moves real money and then
+  // declines to record it.
+  const seasonId = await aSeason(10n)
+  await assert.rejects(
+    () =>
+      grantReward(deps(), {
+        seasonId,
+        userId: ALICE,
+        reason: 'jackpot',
+        amountWei: 1_000n,
+        actor: 'service:worlds',
+        correlationId: 'req-2',
+      }),
+    BudgetExceededError,
+  )
+  assert.equal(ledger.entries.length, 0)
+  assert.equal(ledger.keys.length, 0, 'the ledger was not even asked')
+  const budget = await seasonBudget(db, seasonId)
+  assert.equal(budget?.granted, 0n, 'the budget was rolled back')
+})
+
+test('the refusal says how much is left, so a caller can act on it', { skip }, async () => {
+  const seasonId = await aSeason(100n)
+  await grantReward(deps(), {
+    seasonId,
+    userId: ALICE,
+    reason: 'a',
+    amountWei: 90n,
+    actor: 'service:worlds',
+    correlationId: 'req-2',
+  })
+  await assert.rejects(
+    () =>
+      grantReward(deps(), {
+        seasonId,
+        userId: BOB,
+        reason: 'b',
+        amountWei: 50n,
+        actor: 'service:worlds',
+        correlationId: 'req-3',
+      }),
+    (err: unknown) => err instanceof BudgetExceededError && err.remaining === 10n,
+  )
+})
+
+test('two concurrent grants cannot both spend the last of a budget', { skip }, async () => {
+  const seasonId = await aSeason(100n)
+  const results = await Promise.allSettled([
+    grantReward(deps(), {
+      seasonId,
+      userId: ALICE,
+      reason: 'a',
+      amountWei: 100n,
+      actor: 'service:worlds',
+      correlationId: 'req-2',
+    }),
+    grantReward(deps(), {
+      seasonId,
+      userId: BOB,
+      reason: 'b',
+      amountWei: 100n,
+      actor: 'service:worlds',
+      correlationId: 'req-3',
+    }),
+  ])
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1)
+  assert.equal(ledger.entries.length, 1)
+  assert.equal((await seasonBudget(db, seasonId))?.granted, 100n)
+})
+
+/* ------------------------------------------------------------------ idempotency */
+
+test('the same reward asked twice pays once', { skip }, async () => {
+  const seasonId = await aSeason()
+  const first = await grantReward(deps(), {
+    seasonId,
+    userId: ALICE,
+    reason: 'first_blood',
+    amountWei: 100n,
+    actor: 'service:worlds',
+    correlationId: 'req-2',
+  })
+  const second = await grantReward(deps(), {
+    seasonId,
+    userId: ALICE,
+    reason: 'first_blood',
+    amountWei: 100n,
+    actor: 'service:worlds',
+    correlationId: 'req-3',
+  })
+  assert.equal(second.replayed, true)
+  assert.equal(second.id, first.id)
+  assert.equal(ledger.entries.length, 1)
+  // And it did not charge the budget twice.
+  assert.equal((await seasonBudget(db, seasonId))?.granted, 100n)
+})
+
+test('an unreachable ledger rolls the budget back', { skip }, async () => {
+  // The budget is charged first, inside the same transaction, so a ledger that cannot be reached
+  // leaves the season exactly as it was rather than having quietly spent a hundred wei.
+  const seasonId = await aSeason()
+  ledger.failNext(new LedgerUnavailableError('connect ECONNREFUSED'))
+  await assert.rejects(() =>
+    grantReward(deps(), {
+      seasonId,
+      userId: ALICE,
+      reason: 'first_blood',
+      amountWei: 100n,
+      actor: 'service:worlds',
+      correlationId: 'req-2',
+    }),
+  )
+  assert.equal((await seasonBudget(db, seasonId))?.granted, 0n)
+  const rows = await sql<{ n: number }[]>`select count(*)::int as n from reward_grants`
+  assert.equal(rows[0]?.n, 0)
+})
+
+test('a zero or negative reward is refused', { skip }, async () => {
+  const seasonId = await aSeason()
+  await assert.rejects(
+    () =>
+      grantReward(deps(), {
+        seasonId,
+        userId: ALICE,
+        reason: 'nothing',
+        amountWei: 0n,
+        actor: 'service:worlds',
+        correlationId: 'req-2',
+      }),
+    /positive number of wei/,
+  )
+})
+
+/* ------------------------------------------------------------------ achievements */
+
+test('an achievement unlocks once per ACCOUNT, not once per world', { skip }, async () => {
+  const titleId = await aTitle()
+  await defineAchievement(db, { titleId, key: 'first_blood', name: 'First Blood', points: 10 })
+  const first = await unlockAchievement(db, 'worlds', {
+    userId: ALICE,
+    titleId,
+    key: 'first_blood',
+    actor: 'service:ashfall',
+    correlationId: 'req-2',
+  })
+  const second = await unlockAchievement(db, 'worlds', {
+    userId: ALICE,
+    titleId,
+    key: 'first_blood',
+    actor: 'service:ashfall',
+    correlationId: 'req-3',
+  })
+  assert.equal(first.unlocked, true)
+  assert.equal(second.unlocked, false, 'a title re-evaluating every tick unlocks it once')
+
+  const unlocked = await listUnlocked(db, ALICE, titleId)
+  assert.equal(unlocked.length, 1)
+})
+
+test('an unlock emits exactly one event, however many times it is asked for', { skip }, async () => {
+  const titleId = await aTitle()
+  await defineAchievement(db, { titleId, key: 'first_blood', name: 'First Blood' })
+  for (let i = 0; i < 3; i += 1) {
+    await unlockAchievement(db, 'worlds', {
+      userId: ALICE,
+      titleId,
+      key: 'first_blood',
+      actor: 'service:ashfall',
+      correlationId: `req-${i}`,
+    })
+  }
+  const rows = await sql<{ n: number }[]>`
+    select count(*)::int as n from outbox where topic = 'worlds.achievement.unlocked'
+  `
+  assert.equal(rows[0]?.n, 1)
+})
+
+test('an unknown achievement key is refused rather than silently ignored', { skip }, async () => {
+  const titleId = await aTitle()
+  await assert.rejects(
+    () =>
+      unlockAchievement(db, 'worlds', {
+        userId: ALICE,
+        titleId,
+        key: 'not_a_thing',
+        actor: 'service:ashfall',
+        correlationId: 'req-2',
+      }),
+    /no achievement not_a_thing/,
+  )
+})
+
+test('two titles keep separate achievement namespaces and separate unlocks', { skip }, async () => {
+  const a = await aTitle('ashfall')
+  const b = await aTitle('emberfall')
+  await defineAchievement(db, { titleId: a, key: 'first_blood', name: 'First Blood (Ashfall)' })
+  await defineAchievement(db, { titleId: b, key: 'first_blood', name: 'First Blood (Emberfall)' })
+  await unlockAchievement(db, 'worlds', {
+    userId: ALICE,
+    titleId: a,
+    key: 'first_blood',
+    actor: 'service:ashfall',
+    correlationId: 'req-2',
+  })
+  assert.equal((await listUnlocked(db, ALICE, a)).length, 1)
+  assert.equal((await listUnlocked(db, ALICE, b)).length, 0, 'unlocking in one title is not the other')
+  assert.equal((await listUnlocked(db, ALICE)).length, 1, 'the account view spans titles')
+})
+
+/* ------------------------------------------------------------------ seasons */
+
+test('a season is a ROW per title, so a second season is possible', { skip }, async () => {
+  const titleId = await aTitle()
+  const one = await openSeason(db, {
+    titleId,
+    slug: 's1',
+    name: 'Season One',
+    startsAt: new Date('2026-01-01T00:00:00Z'),
+    endsAt: new Date('2026-04-01T00:00:00Z'),
+    rewardBudgetWei: 1_000n,
+  })
+  const two = await openSeason(db, {
+    titleId,
+    slug: 's2',
+    name: 'Season Two',
+    startsAt: new Date('2026-04-01T00:00:00Z'),
+    endsAt: new Date('2026-07-01T00:00:00Z'),
+    rewardBudgetWei: 2_000n,
+  })
+  assert.notEqual(one.id, two.id)
+  assert.equal(two.rewardBudgetWei, 2_000n)
+})
+
+test('a budget cannot be lowered below what has already been paid', { skip }, async () => {
+  const seasonId = await aSeason(1_000n)
+  await grantReward(deps(), {
+    seasonId,
+    userId: ALICE,
+    reason: 'a',
+    amountWei: 500n,
+    actor: 'service:worlds',
+    correlationId: 'req-2',
+  })
+  const season = await sql<{ title_id: string }[]>`select title_id from seasons where id = ${seasonId}`
+  // Lowering a budget cannot un-pay a reward, and the CHECK is what says so.
+  await assert.rejects(
+    () =>
+      openSeason(db, {
+        titleId: season[0]!.title_id,
+        slug: 's1',
+        name: 'Season One',
+        startsAt: new Date('2026-01-01T00:00:00Z'),
+        endsAt: new Date('2026-04-01T00:00:00Z'),
+        rewardBudgetWei: 100n,
+      }),
+    /seasons_within_budget_wei/,
+  )
+})
+
+/* ------------------------------------------------------------- raising a spending limit */
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * **THESE FOUR REPLACE AN EXPECTATION THAT WAS WRONG, AND THE REASON IT WAS WRONG IS DATED.**
+ *
+ * `openSeason` used to assign `reward_budget_shards = excluded.reward_budget_shards` in its ON
+ * CONFLICT branch with no condition, and the comment on that line defended it: "the budget may be
+ * RAISED by re-opening, never lowered below what has already been paid". That was a defensible
+ * sentence while the budget was a game-balance number.
+ *
+ * Migration 9 ended that. A season is funded from `engagement:worlds`, rewards debit that account,
+ * and that budget column is now a **spending limit on real platform money**. Doc 21 is
+ * explicit about what that makes it: §6 lists `engagement.policy.set` as "required to raise, not
+ * to lower", §7.7 requires the asymmetry to be proven by test, and
+ * `admin-api/src/migrations.ts` already enforces it on `engagement_policies`. A re-open that
+ * raised the cap with no approval and no record contradicted all three — and did it through the
+ * same call an operator makes to correct a season's name.
+ *
+ * So the expectation changed deliberately: **a re-open that raises the budget is now refused
+ * unless it names an approval, and a re-open that lowers it still succeeds without one.** Both
+ * halves are asserted, because a guard that refused every change would be just as wrong in the
+ * other direction and would be exactly as green.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** The re-open an operator does: same title, same slug, whatever budget is passed. */
+async function reopen(
+  titleId: string,
+  rewardBudgetWei: bigint,
+  budgetRaiseApprovalId?: string,
+): Promise<Season> {
+  return openSeason(db, {
+    titleId,
+    slug: 's1',
+    name: 'Season One, renamed',
+    startsAt: new Date('2026-01-01T00:00:00Z'),
+    endsAt: new Date('2026-05-01T00:00:00Z'),
+    rewardBudgetWei,
+    ...(budgetRaiseApprovalId === undefined ? {} : { budgetRaiseApprovalId }),
+  })
+}
+
+async function titleOf(seasonId: string): Promise<string> {
+  const rows = await sql<{ title_id: string }[]>`select title_id from seasons where id = ${seasonId}`
+  return rows[0]!.title_id
+}
+
+test('a re-open cannot SILENTLY raise the budget — that is a spending limit', { skip }, async () => {
+  const seasonId = await aSeason(1_000n)
+  const titleId = await titleOf(seasonId)
+
+  await assert.rejects(
+    () => reopen(titleId, 50_000n),
+    (err: unknown) => err instanceof BudgetRaiseNeedsApprovalError,
+    'raising an engagement cap without an approval must be refused (21 §6, §7.7)',
+  )
+
+  // And nothing moved. A refusal that half-applied would be worse than the raise it refused.
+  const after = await findSeason(db, seasonId)
+  assert.equal(after?.rewardBudgetWei, 1_000n)
+  assert.equal(after?.name, 'Season One', 'the whole upsert rolled back, name included')
+  assert.equal(after?.budgetRaiseApprovalId, null)
+})
+
+test('a re-open MAY lower the budget, and needs nobody to say so', { skip }, async () => {
+  // The other half of 21 §7.7, and the half that stops this guard from being a blanket refusal:
+  // spending LESS of the treasury's money must never need a meeting. Still floored by
+  // seasons_within_budget_wei, which the test above this block proves separately.
+  const seasonId = await aSeason(1_000n)
+  const lowered = await reopen(await titleOf(seasonId), 400n)
+  assert.equal(lowered.rewardBudgetWei, 400n)
+  assert.equal(lowered.name, 'Season One, renamed', 'the rest of the re-open still applies')
+  assert.equal(lowered.budgetRaiseApprovalId, null, 'lowering names nobody, so nobody is recorded')
+})
+
+test('a raise with an approval lands, and the row says what authorised it', { skip }, async () => {
+  const seasonId = await aSeason(1_000n)
+  const titleId = await titleOf(seasonId)
+
+  const raised = await reopen(titleId, 50_000n, 'approval-9f3c')
+  assert.equal(raised.rewardBudgetWei, 50_000n)
+  assert.equal(raised.budgetRaiseApprovalId, 'approval-9f3c')
+
+  // Spent. One approval is one raise — otherwise the first approved raise would be a standing
+  // licence, which is precisely the silent raise this replaced, one round trip later.
+  await assert.rejects(
+    () => reopen(titleId, 90_000n, 'approval-9f3c'),
+    (err: unknown) => err instanceof BudgetRaiseNeedsApprovalError,
+  )
+  await assert.rejects(
+    () => reopen(titleId, 90_000n),
+    (err: unknown) => err instanceof BudgetRaiseNeedsApprovalError,
+  )
+  assert.equal((await findSeason(db, seasonId))?.rewardBudgetWei, 50_000n)
+})
+
+test('the ordinary re-open — same budget, new name — still just works', { skip }, async () => {
+  // The case the old code was really written for. It must keep working, or the fix has moved the
+  // cost from a money bug to an operator who cannot correct a typo.
+  const seasonId = await aSeason(1_000n)
+  const same = await reopen(await titleOf(seasonId), 1_000n)
+  assert.equal(same.id, seasonId, 're-opening updates the season rather than making a second one')
+  assert.equal(same.name, 'Season One, renamed')
+  assert.equal(same.rewardBudgetWei, 1_000n)
+})

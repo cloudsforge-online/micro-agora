@@ -331,6 +331,16 @@ const ENV_SOURCES = [
   '../policy/env.ts',
   '../pricing/env.ts',
   '../studio/env.ts',
+  // Wave M5b: the commerce/games tier. The merged `.env.example` declares every variable ALL
+  // TWELVE modules read, so the reverse direction ("declared, but read by nobody") must scrape all
+  // twelve or it would accuse every new module's variables of being dead.
+  '../community/env.ts',
+  '../market/env.ts',
+  '../billing/env.ts',
+  '../mint/env.ts',
+  '../foresight/env.ts',
+  '../worlds/env.ts',
+  '../tessera/env.ts',
 ] as const
 
 /**

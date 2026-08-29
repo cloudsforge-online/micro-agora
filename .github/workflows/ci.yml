@@ -41,9 +41,12 @@ jobs:
       # `_TESTNET` names are deliberately NOT here: the workflow's suffix check demands
       # `%_DATABASE_URL` and would fail the build on `AGORA_DATABASE_URL_TESTNET`. Nothing is lost
       # — no suite reads a testnet DSN.
+      # Wave M5b added the commerce/games tier — seven more databases, none merged. Twelve now.
       database-env-var: >-
         AGORA_DATABASE_URL DEVPLATFORM_DATABASE_URL POLICY_DATABASE_URL
-        PRICING_DATABASE_URL STUDIO_DATABASE_URL
+        PRICING_DATABASE_URL STUDIO_DATABASE_URL COMMUNITY_DATABASE_URL
+        MARKET_DATABASE_URL BILLING_DATABASE_URL MINT_DATABASE_URL
+        FORESIGHT_DATABASE_URL WORLDS_DATABASE_URL TESSERA_DATABASE_URL
       # The port the IMAGE binds, which is what the smoke test probes — `src/env.ts` defaults PORT
       # to 4150 and nothing below sets it. The estate overrides PORT to 4000 like every other
       # service and maps 127.0.0.1:4150 to it; that is a deployment fact and not this one.
@@ -93,6 +96,19 @@ jobs:
       #
       # EVERY LINE IN THIS BLOCK BECOMES ONE `-e` ARGUMENT, so a comment inside it is passed to
       # `docker run` as an environment variable named `#`. The commentary lives out here.
+      # ── WHAT WAVE M5b ADDED: THE COMMERCE/GAMES TIER'S DECLARED CONFIGURATION ────────────────
+      #
+      # Every line below is a variable one of the seven M5b modules REQUIRES at import (its `env.ts`
+      # exits before /livez otherwise) or reads at boot. The URLs are CI-only non-secrets, never
+      # dialled — /livez makes no outbound call and the modules' upstream probes are soft, so a
+      # merged replica answers /livez while every commerce upstream is a dead 127.0.0.1. The two
+      # `@generate` lines are module ingest/inbound secrets (community's own list, tessera's inbound
+      # webhook key held apart from OUTBOX_SIGNING_SECRET); `COMMUNITY_IDENTITY_CREDENTIAL` mints the
+      # `cfsc_` shape its ledger client presents. The `ci-only-not-a-real-token-…` values are the
+      # deliberately non-secret-shaped placeholders billing and mint carried standalone — @cloudsforge
+      # /secrets does not guard them, and a typed placeholder is exactly what the boot guard permits
+      # where a secret-shaped literal is refused. That this block grew by nineteen lines IS the
+      # commerce/games merge stated as configuration.
       smoke-env: |
         IDENTITY_JWKS_URL=http://127.0.0.1:4001/.well-known/jwks.json
         IDENTITY_ISSUER=http://127.0.0.1:4001
@@ -100,6 +116,25 @@ jobs:
         AGORA_IDENTITY_CREDENTIAL=@credential
         DEVPLATFORM_INGEST_SECRETS=@generate
         STUDIO_ASSET_ROOT=/tmp/studio-assets
+        LEDGER_URL=http://127.0.0.1:4007
+        LEDGER_BASE_URL=http://127.0.0.1:4002
+        POLICY_URL=http://127.0.0.1:4006
+        POLICY_BASE_URL=http://127.0.0.1:4003
+        INDEXER_URL=http://127.0.0.1:4008
+        CUSTODY_URL=http://127.0.0.1:4005
+        PRICING_URL=http://127.0.0.1:4009
+        BILLING_URL=http://127.0.0.1:4009
+        BILLING_LEDGER_URL=http://127.0.0.1:4007
+        BILLING_PRICING_URL=http://127.0.0.1:4009
+        COMMUNITY_INGEST_SECRETS=@generate
+        COMMUNITY_IDENTITY_CREDENTIAL=@credential
+        INBOUND_SIGNING_SECRET=@generate
+        BILLING_LEDGER_TOKEN=ci-only-not-a-real-token-0000000000000
+        MINT_SERVICE_TOKEN=ci-only-not-a-real-token-0000000000000
+        FORESIGHT_TREASURY_ADDRESS=0x0000000000000000000000000000000000000001
+        FORESIGHT_ORACLE_ADDRESS=0x0000000000000000000000000000000000000002
+        FORESIGHT_ORACLE_USER_ID=ci
+        FORESIGHT_ORACLE_ORDER_ID=ci-oracle
     secrets:
       # @cloudsforge/* resolves by link:../runtime and link:../contracts, so CI checks out
       # micro-runtime and micro-contracts as siblings — both private, so the workflow needs a
@@ -123,7 +158,7 @@ jobs:
     #
     # Wave M5a made it five databases. Four of them are created below rather than by the service
     # container, which can only make one.
-    name: The migrator, on five empty databases
+    name: The migrator, on twelve empty databases
     runs-on: ubuntu-latest
     # `contents: read`, declared, so the default GITHUB_TOKEN can read the public sibling repos when
     # the fallback below reaches for it. The reusable `ci` job declares the same at its call site.
@@ -155,10 +190,41 @@ jobs:
       POLICY_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/policy_test
       PRICING_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/pricing_test
       STUDIO_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/studio_test
+      # The M5b seven. Each a distinct database on the same server; `src/migratortargets.ts` refuses
+      # to issue a statement if any two of the twelve ever stop being distinct.
+      COMMUNITY_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/community_test
+      MARKET_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/market_test
+      BILLING_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/billing_test
+      MINT_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/mint_test
+      FORESIGHT_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/foresight_test
+      WORLDS_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/worlds_test
+      TESSERA_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/tessera_test
       IDENTITY_JWKS_URL: http://127.0.0.1:4001/.well-known/jwks.json
       IDENTITY_ISSUER: http://127.0.0.1:4001
-      # OUTBOX_SIGNING_SECRET and DEVPLATFORM_INGEST_SECRETS are deliberately NOT here — see the
-      # first step below.
+      # The M5b modules' env.ts validates at import, and `src/migrator.ts` imports every module.ts
+      # (which imports its env.ts) — so the migrator would exit 1 before touching a schema without
+      # the upstream URLs and scalars those modules REQUIRE. CI-only non-secrets, never dialled: the
+      # migrator opens pools, it makes no outbound call. The `ci-only-not-a-real-token-…` values are
+      # not secret-shaped, so @cloudsforge/secrets does not guard them.
+      LEDGER_URL: http://127.0.0.1:4007
+      LEDGER_BASE_URL: http://127.0.0.1:4002
+      POLICY_URL: http://127.0.0.1:4006
+      POLICY_BASE_URL: http://127.0.0.1:4003
+      INDEXER_URL: http://127.0.0.1:4008
+      CUSTODY_URL: http://127.0.0.1:4005
+      PRICING_URL: http://127.0.0.1:4009
+      BILLING_URL: http://127.0.0.1:4009
+      BILLING_LEDGER_URL: http://127.0.0.1:4007
+      BILLING_PRICING_URL: http://127.0.0.1:4009
+      BILLING_LEDGER_TOKEN: ci-only-not-a-real-token-0000000000000
+      MINT_SERVICE_TOKEN: ci-only-not-a-real-token-0000000000000
+      FORESIGHT_TREASURY_ADDRESS: '0x0000000000000000000000000000000000000001'
+      FORESIGHT_ORACLE_ADDRESS: '0x0000000000000000000000000000000000000002'
+      FORESIGHT_ORACLE_USER_ID: ci
+      FORESIGHT_ORACLE_ORDER_ID: ci-oracle
+      # OUTBOX_SIGNING_SECRET, DEVPLATFORM_INGEST_SECRETS, COMMUNITY_INGEST_SECRETS,
+      # INBOUND_SIGNING_SECRET and COMMUNITY_IDENTITY_CREDENTIAL are deliberately NOT here — they are
+      # generated per run in the first step below, because @cloudsforge/secrets refuses a literal.
     steps:
       # THE KEY MATERIAL IS GENERATED, not written into the mapping above.
       #
@@ -173,7 +239,10 @@ jobs:
       - name: Real key material, for this run only
         run: |
           set -euo pipefail
-          for name in OUTBOX_SIGNING_SECRET DEVPLATFORM_INGEST_SECRETS; do
+          # Wave M5b: community's own ingest list and tessera's inbound-webhook key join the two the
+          # M5a modules need. Each module's env.ts runs @cloudsforge/secrets at import and refuses a
+          # value not shaped like a generated one — so a real one is minted per run and thrown away.
+          for name in OUTBOX_SIGNING_SECRET DEVPLATFORM_INGEST_SECRETS COMMUNITY_INGEST_SECRETS INBOUND_SIGNING_SECRET; do
             secret="$(openssl rand -base64 48)"
             echo "::add-mask::$secret"
             echo "${name}=${secret}" >> "$GITHUB_ENV"
@@ -221,11 +290,12 @@ jobs:
         # DEVPLATFORM_DATABASE_URL above.
         run: |
           set -euo pipefail
-          for db in devplatform_test policy_test pricing_test studio_test; do
+          for db in devplatform_test policy_test pricing_test studio_test \
+                    community_test market_test billing_test mint_test foresight_test worlds_test tessera_test; do
             PGPASSWORD=agora psql -h 127.0.0.1 -U agora -d agora_test -v ON_ERROR_STOP=1 \
               -c "create database ${db}"
           done
-      - name: Migrate all five test databases
+      - name: Migrate all twelve test databases
         working-directory: agora
         run: pnpm migrate
       - name: Migrating twice is a no-op
@@ -233,7 +303,7 @@ jobs:
         # A deploy re-runs the one-shot job on every release; a migrator that is not idempotent turns
         # the second deploy of an unchanged schema into an outage.
         run: pnpm migrate
-      - name: All five schemas are actually there, and each in its OWN database
+      - name: All twelve schemas are actually there, and each in its OWN database
         # The failure this whole arrangement exists to prevent is a migrator that exits 0 having
         # created nothing. So the tables are counted rather than the exit code trusted, and each
         # database is checked for tables only the OTHER modules own — which is what a shared ledger,
@@ -244,7 +314,9 @@ jobs:
           # database:minimum-tables — the module's own table count plus `schema_migrations`. A floor
           # rather than an equality, so adding a migration is not a CI edit; high enough that a
           # module whose migrator never ran cannot clear it.
-          for pair in agora_test:28 devplatform_test:21 policy_test:11 pricing_test:9 studio_test:10; do
+          for pair in agora_test:28 devplatform_test:21 policy_test:11 pricing_test:9 studio_test:10 \
+                      community_test:14 market_test:20 billing_test:15 mint_test:7 foresight_test:16 \
+                      worlds_test:12 tessera_test:19; do
             db="${pair%%:*}"; floor="${pair##*:}"
             n=$(q "$db" "select count(*) from information_schema.tables where table_schema='public'")
             echo "${db}: ${n} tables (floor ${floor})"
@@ -254,18 +326,22 @@ jobs:
           # five are unique to their owner. Each must be absent from the other four databases, or
           # the ledgers have been confused. Every ordered pair, because a check that only compared
           # each module against ONE other is a check five modules can walk through.
-          for owner in agora_test:voices devplatform_test:api_keys policy_test:policy_decisions pricing_test:price_quotes studio_test:brand_kits; do
+          for owner in agora_test:voices devplatform_test:api_keys policy_test:policy_decisions pricing_test:price_quotes studio_test:brand_kits \
+                       community_test:communities market_test:bids billing_test:invoices mint_test:tokens \
+                       foresight_test:house_seeds worlds_test:player_profiles tessera_test:beacons; do
             odb="${owner%%:*}"; table="${owner##*:}"
             [ "$(q "$odb" "select count(*) from information_schema.tables where table_name='${table}'")" = "1" ] \
               || { echo "::error::${odb} does not have its own ${table}"; exit 1; }
-            for other in agora_test devplatform_test policy_test pricing_test studio_test; do
+            for other in agora_test devplatform_test policy_test pricing_test studio_test \
+                         community_test market_test billing_test mint_test foresight_test worlds_test tessera_test; do
               [ "$other" = "$odb" ] && continue
               [ "$(q "$other" "select count(*) from information_schema.tables where table_name='${table}'")" = "0" ] \
                 || { echo "::error::${odb}'s ${table} was created in ${other}"; exit 1; }
             done
           done
           # And each ledger records its OWN module's versions, under its own service name.
-          for db in agora_test devplatform_test policy_test pricing_test studio_test; do
+          for db in agora_test devplatform_test policy_test pricing_test studio_test \
+                    community_test market_test billing_test mint_test foresight_test worlds_test tessera_test; do
             n=$(q "$db" "select count(*) from schema_migrations")
             echo "${db}: ${n} migrations recorded"
             [ "$n" -gt 0 ] || { echo "::error::${db} has an empty migration ledger"; exit 1; }

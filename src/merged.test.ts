@@ -626,10 +626,19 @@ describe('the merged surface', { skip }, () => {
       assert.equal(res.status, 410)
       const reply = (await res.json()) as { error: { code: string; paths: Record<string, string> } }
       assert.equal(reply.error.code, 'events_path_split')
+      // All nine module webhooks, because the 410 body is the process's `SPLIT_EVENT_PATHS` — even
+      // though THIS suite mounts only the M5a five, the bare-path handler names every split the
+      // process serves, and wave M5b added six (community, market, billing, mint, worlds, tessera).
       assert.deepEqual(reply.error.paths, {
         agora: '/v1/events/agora',
         devplatform: '/v1/events/devplatform',
         policy: '/v1/events/policy',
+        community: '/v1/events/community',
+        market: '/v1/events/market',
+        billing: '/v1/events/billing',
+        mint: '/v1/events/mint',
+        worlds: '/v1/events/worlds',
+        tessera: '/v1/events/tessera',
       })
     })
 

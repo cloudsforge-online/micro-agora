@@ -79,6 +79,47 @@ import {
   registerHandlers as registerStudioHandlers,
   type JobDeps as StudioJobDeps,
 } from './studio/jobs.ts'
+// ── WAVE M5b: the commerce/games tier's job kinds ─────────────────────────────────────────────
+//
+// Constants only. The register-throws MECHANISM is proven exhaustively for the M5a five below;
+// these eleven modules all register `outbox.relay` through the SAME `@cloudsforge/jobs.register`,
+// so measuring that their relay is spelled `outbox.relay` is measuring that they collide, and the
+// label-separation render below is what proves the fix. Aliased on import because several modules
+// name a kind constant the same thing (two `EXPIRE_KIND`, two `REAP_KIND`, two `SWEEP_KIND`) — a
+// collision of CONSTANT names that is harmless, unlike the collision of kind VALUES this file pins.
+import {
+  RELAY_KIND as COMMUNITY_RELAY,
+  RETENTION_KIND as COMMUNITY_RETENTION,
+  TRANSITION_KIND as COMMUNITY_TRANSITION,
+  EXECUTE_KIND as COMMUNITY_EXECUTE,
+  RECHECK_KIND as COMMUNITY_RECHECK,
+} from './community/jobs.ts'
+import {
+  RELAY_KIND as MARKET_RELAY,
+  AUCTION_CLOSE_KIND,
+  AUCTION_SWEEP_KIND,
+  PAYOUT_KIND,
+  PAYOUT_SWEEP_KIND,
+  EXPIRE_KIND as MARKET_EXPIRE,
+  REAP_KIND as MARKET_REAP,
+} from './market/jobs.ts'
+import {
+  RELAY_KIND as BILLING_RELAY,
+  EXPIRE_KIND as BILLING_EXPIRE,
+  RENEW_KIND,
+  RENEWAL_SCAN_KIND,
+  REAP_KIND as BILLING_REAP,
+  RECYCLE_KIND,
+} from './billing/jobs.ts'
+import { RELAY_KIND as MINT_RELAY, DEPLOY_KIND, SWEEP_KIND as MINT_SWEEP } from './mint/jobs.ts'
+import { JOB_KINDS as FORESIGHT_KINDS } from './foresight/jobs.ts'
+import { RELAY_KIND as WORLDS_RELAY, PROVISION_KIND, SWEEP_KIND as WORLDS_SWEEP } from './worlds/jobs.ts'
+import {
+  RELAY_KIND as TESSERA_RELAY,
+  WARD_MINT_KIND,
+  PARCEL_SETTLE_KIND,
+  KILN_FIRE_KIND,
+} from './tessera/jobs.ts'
 
 const quiet = new Logger({ service: 'jobcomposition-test', sink: () => {} })
 const nothing = {} as unknown as JobsSql
@@ -370,5 +411,102 @@ describe('separate runners are only READABLE because of the module label', () =>
     assert.ok(dead.some((l) => l.includes('module="devplatform"')))
     assert.ok(dead.some((l) => l.includes('module="policy"')))
     for (const line of dead) assert.match(line, / 1$/)
+  })
+})
+
+describe('WAVE M5b: the commerce/games tier brings six more relays and a second exact collision', () => {
+  const render = (metrics: Metrics): string[] => metrics.render().split('\n')
+
+  it('six more modules name their relay `outbox.relay`, and foresight lists it among its kinds', () => {
+    for (const relay of [COMMUNITY_RELAY, MARKET_RELAY, BILLING_RELAY, MINT_RELAY, WORLDS_RELAY, TESSERA_RELAY]) {
+      assert.equal(relay, 'outbox.relay')
+    }
+    assert.ok(FORESIGHT_KINDS.includes('outbox.relay'), 'foresight relays too, via its JOB_KINDS list')
+    // Eleven of the twelve modules now register `outbox.relay`, character for character. policy is
+    // still the only one that produces no events at all — measured in `migratortargets.test.ts`,
+    // which shows policy owns no `outbox` table.
+    const relays = new Set([
+      AGORA_RELAY,
+      DEVPLATFORM_RELAY,
+      PRICING_RELAY,
+      STUDIO_RELAY,
+      COMMUNITY_RELAY,
+      MARKET_RELAY,
+      BILLING_RELAY,
+      MINT_RELAY,
+      WORLDS_RELAY,
+      TESSERA_RELAY,
+    ])
+    assert.equal(relays.size, 1, 'all eleven spell it identically, so one shared runner would refuse the second')
+  })
+
+  it('community adds a SECOND exact collision — `retention` — that devplatform already owns', () => {
+    // M5a wrote devplatform's bare `retention` down as "the widest kind name in the process, and
+    // the one most likely to collide with a future module's". community is that future module: both
+    // register a kind spelled exactly `retention`. They run in different databases under different
+    // runners, so nothing breaks — but `jobs_failed_total{kind="retention"}` would be the sum of the
+    // two without the `module` label, which is why every module labels its job metrics.
+    assert.equal(COMMUNITY_RETENTION, 'retention')
+    assert.equal(DEVPLATFORM_RETENTION, 'retention')
+    assert.equal(COMMUNITY_RETENTION, DEVPLATFORM_RETENTION, 'a second exact collision, not a near-miss')
+  })
+
+  it('while every other new module-specific kind collides with nothing', () => {
+    const own = [
+      COMMUNITY_TRANSITION,
+      COMMUNITY_EXECUTE,
+      COMMUNITY_RECHECK,
+      AUCTION_CLOSE_KIND,
+      AUCTION_SWEEP_KIND,
+      PAYOUT_KIND,
+      PAYOUT_SWEEP_KIND,
+      MARKET_EXPIRE,
+      MARKET_REAP,
+      BILLING_EXPIRE,
+      RENEW_KIND,
+      RENEWAL_SCAN_KIND,
+      BILLING_REAP,
+      RECYCLE_KIND,
+      DEPLOY_KIND,
+      MINT_SWEEP,
+      PROVISION_KIND,
+      WORLDS_SWEEP,
+      WARD_MINT_KIND,
+      PARCEL_SETTLE_KIND,
+      KILN_FIRE_KIND,
+      ...FORESIGHT_KINDS.filter((k) => k !== 'outbox.relay'),
+    ]
+    assert.equal(new Set(own).size, own.length, `two new kinds share a value: ${own.join(', ')}`)
+    assert.ok(!own.includes('outbox.relay'), 'the relay is the shared one and is counted separately')
+    assert.ok(!own.includes('retention'), 'retention is the other shared one and is counted separately')
+  })
+
+  it('and the module label keeps all eleven relays readable as eleven series', () => {
+    // The arrangement the merged process runs: eleven runners, one registry, every job metric through
+    // `metrics.withLabels({ module })`. Without the label these eleven `outbox.relay` increments are
+    // ONE series whose value nobody can attribute — the exact failure this whole file exists to pin.
+    const metrics = registerJobMetrics(new Metrics())
+    const modules = [
+      'agora',
+      'devplatform',
+      'pricing',
+      'studio',
+      'community',
+      'market',
+      'billing',
+      'mint',
+      'foresight',
+      'worlds',
+      'tessera',
+    ] as const
+    for (const module of modules) {
+      metrics.withLabels({ module }).increment('jobs_failed_total', { kind: 'outbox.relay' })
+    }
+    const relays = render(metrics).filter((l) => l.startsWith('jobs_failed_total{') && l.includes('outbox.relay'))
+    assert.equal(relays.length, 11, `eleven modules' relays must be eleven series:\n${relays.join('\n')}`)
+    for (const module of modules) {
+      assert.ok(relays.some((l) => l.includes(`module="${module}"`)), `${module} is missing`)
+    }
+    for (const line of relays) assert.match(line, / 1$/, 'each module counts its own failure, not the sum')
   })
 })
