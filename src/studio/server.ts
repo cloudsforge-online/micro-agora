@@ -115,6 +115,17 @@ export interface ServerDeps {
    */
   readonly sql: NetworkSql
   readonly kitsFor: (sql: unknown) => BrandKitStore
+  /**
+   * The rest of the per-request rebuild, added by wave M5a. See `forRequest`.
+   *
+   * OPTIONAL: absent in the standalone listener, where the boot-time `reads`, `generation` and
+   * `uploads` already close over the one pool this process opened. Present in the merged process,
+   * where there is a pool per estate and answering a testnet request out of mainnet rows is a
+   * query that succeeds and says nothing.
+   */
+  readonly readsFor?: (sql: unknown) => ReadModel
+  readonly generationFor?: (sql: unknown) => GenerationRequester
+  readonly uploadsFor?: (sql: unknown) => UploadReceiver
   /** `CF_NETWORK_SINGLE`, for `pnpm dev`, which has no gateway to stamp the header. */
   readonly singleNetwork?: Network
   readonly reads: ReadModel
@@ -334,7 +345,7 @@ export function createServer(deps: ServerDeps): Server {
     // what makes the failure answerable instead of fatal.
     let scoped: ReturnType<typeof forRequest>
     try {
-      scoped = forRequest(deps, network)
+      scoped = forRequest(deps, deps.sql.for(network))
     } catch (err) {
       log.error('no usable dependencies for this request', { err, network })
       send(
@@ -373,14 +384,43 @@ export function createServer(deps: ServerDeps): Server {
  *   * **503** — the token verifier could not be reached.
  */
 /**
- * The deps a REQUEST sees: the store rebuilt against this request's network.
+ * The deps a REQUEST sees: every store rebuilt against this request's HANDLE.
  *
- * studio keeps its handle inside the store, so the store is the thing to rebuild — `kitsFor` is the
- * same factory `index.ts` uses at boot, called again with the right handle. Cheap: the store is a
- * closure over a pool, not a connection.
+ * studio keeps its handle inside its stores, so a store is the thing to rebuild — `kitsFor` is the
+ * same factory the composition root uses at boot, called again with the right handle. Cheap: a
+ * store is a closure over a pool, not a connection.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * **WAVE M5a: A HANDLE, NOT A NETWORK, AND THE OTHER THREE PORTS TOO.**
+ *
+ * It took a `Network` and resolved `deps.sql.for(network)` itself. That was right for a process
+ * that held one module, and wrong for one that holds five: the kernel has ALREADY resolved a
+ * handle by then, from the selector the ROUTE named (`RouteSpec.sql`), and re-resolving from
+ * `deps.sql` here made the stamp decorative for this module alone. Removing studio's stamp turned
+ * exactly one merged case red — the structural one — while every behavioural case still passed,
+ * which is the shape of a guard that is not guarding anything. Taking the handle makes it
+ * load-bearing: the merged path passes `ctx.sql`, the standalone path passes
+ * `deps.sql.for(network)`, and both are the same value in a one-module process.
+ *
+ * `readsFor`, `generationFor` and `uploadsFor` are the second half, and they fix a real defect
+ * rather than a theoretical one. `reads`, `generation` and `uploads` were built once at boot over
+ * ONE pool, which was correct while this service opened one — but this deployment now holds a pool
+ * per ESTATE (`STUDIO_DATABASE_URL_TESTNET` is set on the live pods), so a testnet request would
+ * have been answered a mainnet job id, a mainnet asset and a mainnet upload quota. A query that
+ * SUCCEEDS and says nothing, which is the failure the whole network split exists to prevent.
+ *
+ * All three are OPTIONAL, so the standalone listener and every test that builds `ServerDeps` by
+ * hand pass concrete objects and behave exactly as before.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
  */
-function forRequest(deps: ServerDeps, network: Network): ServerDeps {
-  return { ...deps, kits: deps.kitsFor(deps.sql.for(network)) }
+function forRequest(deps: ServerDeps, sql: unknown): ServerDeps {
+  return {
+    ...deps,
+    kits: deps.kitsFor(sql),
+    ...(deps.readsFor ? { reads: deps.readsFor(sql) } : {}),
+    ...(deps.generationFor ? { generation: deps.generationFor(sql) } : {}),
+    ...(deps.uploadsFor ? { uploads: deps.uploadsFor(sql) } : {}),
+  }
 }
 
 async function handle(route: Route | undefined, ctx: RequestContext, deps: ServerDeps): Promise<Reply> {
@@ -1271,6 +1311,6 @@ export function mountableRoutes(deps: ServerDeps, sql: NetworkSql): readonly Rou
       sql,
       // `async` rather than a bare call, so a handler that throws SYNCHRONOUSLY is a rejected
       // promise the kernel's dispatch already catches rather than an exception escaping into it.
-      handle: async (ctx: KernelContext<Db>): Promise<Reply> => await handle(route, ctx, forRequest(deps, ctx.network)),
+      handle: async (ctx: KernelContext<Db>): Promise<Reply> => await handle(route, ctx, forRequest(deps, ctx.sql)),
     }))
 }

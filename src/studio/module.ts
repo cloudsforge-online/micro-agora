@@ -259,11 +259,60 @@ export async function createStudioModule(host: HostRuntime): Promise<StudioModul
   // is the per-network thing.
   const kitsFor = (handle: unknown) => postgresBrandKitStore(handle as typeof sql, SERVICE)
 
-  const planeFor = (network: string): (typeof planes)[number] => {
-    const plane = planes.find((p) => p.network === network)
-    if (!plane) throw new Error(`no plane for network ${network}`)
+  /**
+   * The plane a HANDLE belongs to.
+   *
+   * By identity, not by name, and that is what makes it safe: the handle arrives from the kernel,
+   * which resolved it from THIS module's selector, which is built from exactly these pools. A
+   * handle that is not one of them is a handle from another module's selector — the failure
+   * `RouteSpec.sql` exists to prevent — and it throws rather than falling back to the primary,
+   * because a silent fallback would answer a testnet request out of mainnet rows.
+   */
+  const planeForHandle = (handle: unknown): (typeof planes)[number] => {
+    const plane = planes.find((p) => (p.pool as unknown) === handle)
+    if (!plane) throw new Error('this handle does not belong to the studio module')
     return plane
   }
+
+  // The three ports, as factories over one plane. Each closes over a handle and nothing else, so
+  // there is no path by which one plane's queue could reach another plane's pool.
+  const readsOver = (pool: (typeof planes)[number]['pool']) => ({
+    findJob: (id: string) => findJob(pool, id),
+    findAsset: (id: string) => findAsset(pool, id),
+    // The blob store, not the filesystem. The route hands it a checksum from a row it has already
+    // authorised, and the store is the only thing that knows how a checksum becomes a path. NOT
+    // per-network: see the note on `blobs` above — there is one PVC and assets are
+    // content-addressed under it.
+    readBlob: (checksum: string, format: string) =>
+      blobs.get(checksum, format as Parameters<typeof blobs.get>[1]),
+    listAssetsForKit: (brandKitId: string, limit: number) => listAssetsForKit(pool, brandKitId, limit),
+  })
+
+  const generationOver = (plane: (typeof planes)[number]) => ({
+    request: (input: Parameters<typeof requestGeneration>[1]) =>
+      requestGeneration(
+        {
+          sql: plane.pool,
+          producer: SERVICE,
+          defaultCreditCapUsdMicros: env.defaultCreditCapUsdMicros,
+          priceUsdMicros: env.imagePriceUsdMicros,
+          enqueue: async (job: { kind: string; key: string; payload: Record<string, unknown> }) => {
+            // `keep` collapses a double-click into one run. The key is the owner's spend. THIS
+            // plane's queue: an enqueue is a write, and a job claimed by a runner holding the other
+            // estate's handle applies to the other estate's rows.
+            await plane.queue.enqueue({ ...job, onConflict: 'keep' })
+          },
+        },
+        input,
+      ),
+  })
+
+  const uploadsOver = (pool: (typeof planes)[number]['pool']) => ({
+    store: (input: Parameters<typeof storeUpload>[1]) =>
+      storeUpload({ sql: pool, producer: SERVICE, blobs, quota: DEFAULT_UPLOAD_QUOTA }, input),
+    setVisibility: (input: Parameters<typeof changeVisibility>[1]) =>
+      changeVisibility({ sql: pool, producer: SERVICE }, input),
+  })
 
   const routes = mountableRoutes(
     {
@@ -278,47 +327,24 @@ export async function createStudioModule(host: HostRuntime): Promise<StudioModul
       kitsFor,
       sql: studioSql,
       singleNetwork: ownNetwork,
-      reads: {
-        // ── EVERY READ RESOLVES ITS OWN PLANE, AND THAT IS A CHANGE ─────────────────────────
-        //
-        // The standalone service closed these over the ONE pool it opened, which was right when a
-        // process held one. In the merged process each of these must answer from the network the
-        // request named, or a testnet reader is served a mainnet job id — a query that SUCCEEDS
-        // and says nothing. `ctx.network` reaches here through the same `forRequest` that rebuilds
-        // the brand-kit store.
-        findJob: (id) => findJob(planeFor(ownNetwork).pool, id),
-        findAsset: (id) => findAsset(planeFor(ownNetwork).pool, id),
-        // The blob store, not the filesystem. The route hands it a checksum from a row it has
-        // already authorised, and the store is the only thing that knows how a checksum becomes a
-        // path. Not per-network: see the note on `blobs` above.
-        readBlob: (checksum, format) => blobs.get(checksum, format as Parameters<typeof blobs.get>[1]),
-        listAssetsForKit: (brandKitId, limit) => listAssetsForKit(planeFor(ownNetwork).pool, brandKitId, limit),
-      },
-      generation: {
-        request: (input) =>
-          requestGeneration(
-            {
-              sql: planeFor(ownNetwork).pool,
-              producer: SERVICE,
-              defaultCreditCapUsdMicros: env.defaultCreditCapUsdMicros,
-              priceUsdMicros: env.imagePriceUsdMicros,
-              enqueue: async (job: { kind: string; key: string; payload: Record<string, unknown> }) => {
-                // `keep` collapses a double-click into one run. The key is the owner's spend.
-                await planeFor(ownNetwork).queue.enqueue({ ...job, onConflict: 'keep' })
-              },
-            },
-            input,
-          ),
-      },
-      uploads: {
-        store: (input) =>
-          storeUpload(
-            { sql: planeFor(ownNetwork).pool, producer: SERVICE, blobs, quota: DEFAULT_UPLOAD_QUOTA },
-            input,
-          ),
-        setVisibility: (input) =>
-          changeVisibility({ sql: planeFor(ownNetwork).pool, producer: SERVICE }, input),
-      },
+      // ── THE BOOT-TIME PORTS, AND THE FACTORIES THAT REPLACE THEM PER REQUEST ────────────
+      //
+      // `ServerDeps` demands all three, so all three are built over the PRIMARY plane here — and
+      // every one of them is replaced by `forRequest` before any handler runs, from the handle the
+      // kernel resolved out of THIS module's selector. The boot-time objects exist so the type is
+      // satisfied and so a mistake is a wrong ESTATE rather than a wrong module; `RouteSpec.sql` is
+      // what makes the module half impossible.
+      //
+      // The factories are what wave M5a added, and they fix a real defect. Built once over one
+      // pool — as the standalone service correctly did, holding one — a testnet request would be
+      // answered a mainnet job id, a mainnet asset and a mainnet upload quota. A query that
+      // SUCCEEDS and says nothing.
+      reads: readsOver(planes[0]!.pool),
+      readsFor: (sql) => readsOver(planeForHandle(sql).pool),
+      generation: generationOver(planes[0]!),
+      generationFor: (sql) => generationOver(planeForHandle(sql)),
+      uploads: uploadsOver(planes[0]!.pool),
+      uploadsFor: (sql) => uploadsOver(planeForHandle(sql).pool),
       preflight,
     },
     studioSql,
