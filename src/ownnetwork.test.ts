@@ -72,25 +72,56 @@ describe('a single-network pod cannot end up holding two testnet entries', () =>
 
 describe('the throw reaches a response, not the process', () => {
   const SERVER = readFileSync(new URL('./server.ts', import.meta.url), 'utf8')
+  const KERNEL = readFileSync(new URL('./kernel.ts', import.meta.url), 'utf8')
 
   /*
    * `forRequest` rebuilds this request's domain objects, and in the services that bulkhead their job
    * queues it reaches a plane that throws exactly as hard as the handle does. That is right.
    *
-   * What matters is WHERE it is called. On the `void handle(…)` line it is evaluated synchronously,
-   * before `handle` returns anything to attach a `.catch` to — so the throw leaves the request
-   * listener uncaught, and node exits on an uncaught exception in a listener. Not a 500, not even
-   * the hang the earlier fix removed: the pod dies, and its replacement dies on the next request.
+   * What matters is WHERE it is called. It used to be evaluated on the `void handle(…)` line —
+   * synchronously, before `handle` returned anything to attach a `.catch` to — so the throw left
+   * the request listener uncaught, and node exits on an uncaught exception in a listener. Not a
+   * 500, not even the hang the earlier fix removed: the pod dies, and its replacement dies on the
+   * next request. Which made it a remote crash reachable by anyone who can set a header, including
+   * against mainnet pods, which sit behind a public gateway.
    *
-   * Which made it a remote crash reachable by anyone who can set a header, including against
-   * mainnet pods, which sit behind a public gateway.
+   * ── WHAT WAVE M5a CHANGED, AND WHY THIS IS STRONGER RATHER THAN DIFFERENT ────────────────────
+   *
+   * The request lifecycle moved to `kernel.ts` so that four more modules could be mounted beside
+   * this one without a second copy of it. `forRequest` went with the ROUTES: `createRoutes` closes
+   * over the process-wide deps and rebuilds them inside an `async` handler, where a synchronous
+   * throw IS a rejected promise. So the property no longer depends on two brackets in one file
+   * staying in agreement — it depends on the call sitting inside an `async` function, which the
+   * language enforces — and it now covers every line of the handler rather than one expression.
+   *
+   * Both halves are still asserted, because a fix that only moved the call would be indistinguish-
+   * able from a fix that removed the protection: the old shape must be ABSENT and the new one
+   * PRESENT.
    */
-  it('resolves forRequest inside the try, not on the dispatch line', () => {
-    assert.match(SERVER, /try \{[\s\S]{0,600}?scoped = forRequest\(/)
+  it('rebuilds forRequest inside an async handler, never on a synchronous dispatch line', () => {
+    // PRESENT: the rebuild happens in the `async (ctx) =>` the kernel awaits.
+    assert.match(SERVER, /handle: async \(ctx: RequestContext\): Promise<Reply> =>[\s\S]{0,120}?forRequest\(/)
+    // ABSENT: the shape that killed the pod. Neither the old dispatch line nor any call to
+    // `forRequest` outside a handler may exist.
     assert.doesNotMatch(SERVER, /void handle\([^\n]*forRequest\(/)
+    const calls = [...SERVER.matchAll(/(?<!function )\bforRequest\(/g)]
+    assert.equal(calls.length, 1, `forRequest is called ${calls.length} times; exactly one, in the handler`)
+
+    // And the kernel's own resolution — the one thing that CANNOT move into the handler, because
+    // the handle has to exist before the handler is called — is still inside a try.
+    assert.match(KERNEL, /try \{[\s\S]{0,400}?selector\.for\(network\)/)
+    // The dispatch is awaited through an `async` frame, which is what turns a synchronous throw in
+    // a handler into a rejection this `.catch` sees.
+    assert.match(KERNEL, /void answer\(matched, \{[^\n]*\}\)\n\s*\.then\(/)
+    assert.match(KERNEL, /async function answer</)
   })
 
   it('answers 500 network_unavailable rather than hanging or dying', () => {
-    assert.match(SERVER, /'network_unavailable'/)
+    // Moved to the kernel with the resolution it reports on. Asserted there, and asserted ABSENT
+    // here, so a second copy in this file — which would be a second, divergent refusal path —
+    // fails this case rather than shipping.
+    assert.match(KERNEL, /'network_unavailable'/)
+    assert.match(KERNEL, /'network_unknown'/)
+    assert.doesNotMatch(SERVER, /'network_unavailable'/)
   })
 })
