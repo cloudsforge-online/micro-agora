@@ -468,7 +468,99 @@ export function createServer(deps: ServerDeps): Server {
  * ══════════════════════════════════════════════════════════════════════════════════════════════
  */
 export function createMergedServer(deps: ServerDeps, mounted: readonly RouteSpec<Db>[]): Server {
-  return mountRoutes([...createRoutes(deps), ...mounted], deps)
+  return mountRoutes([...splitEventRoutes(createRoutes(deps)), goneEventsRoute(), ...mounted], deps)
+}
+
+/** The webhook path this module serves STANDALONE. Three of the five modules mount this exact path. */
+export const EVENTS_PATH = '/v1/events'
+
+/**
+ * The webhook path this module serves INSIDE the merged process.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * **THREE MODULES MOUNT `POST /v1/events`, AND THEY DO NOT VERIFY WITH THE SAME KEY.**
+ *
+ * agora verifies against `OUTBOX_SIGNING_SECRET`. policy verifies against `OUTBOX_ACCEPT_SECRETS`
+ * falling back to `OUTBOX_SIGNING_SECRET`, and treats an EMPTY list as "cannot verify yet" — a
+ * 503, deliberately, rather than accepting anything. devplatform verifies against
+ * `DEVPLATFORM_INGEST_SECRETS`, a variable of its own, required at boot, and answers 401 rather
+ * than 403 on a bad signature.
+ *
+ * So the emberkin arrangement — verify ONCE at the shared route and fan out to every module that
+ * subscribes — is not available here. That is honest in THAT process only because every module in
+ * it reads the same estate-wide secret, and `mergedupstreams.test.ts` is what keeps it true. Here
+ * it would mean one of three keys silently deciding for the other two.
+ *
+ * This is wave M2's finding at larger scale — "a CNAME moves a host, not a path" — and it takes
+ * M2's answer: each module serves its OWN suffixed path with its OWN key against its OWN inbox,
+ * and the bare path answers 410 naming the split. `mergedevents.test.ts` proves all three, and
+ * that this module's own path moved too — leaving agora on the bare path would make a
+ * mis-pointed devplatform or policy subscription land HERE, verify against the wrong key, and
+ * either 403 for ever or (for a delivery signed with the estate-wide key) be accepted by the
+ * wrong module.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export const MOUNTED_EVENTS_PATH = '/v1/events/agora'
+
+/**
+ * Where the other two webhooks went, as LITERALS rather than imports.
+ *
+ * Importing `MOUNTED_EVENTS_PATH` from `./devplatform/server.ts` and `./policy/server.ts` would be
+ * one fewer place for these strings to live, and it is refused for a layering reason: this file is
+ * the host module's own surface and must not pull two mounted modules' import graphs into every
+ * suite that drives it. A literal plus a test is the same guarantee without the coupling —
+ * `mergedevents.test.ts` asserts each module's own constant equals its entry here, so a module that
+ * renamed its path and left this behind is a red test rather than a 410 body pointing at nothing.
+ */
+export const SPLIT_EVENT_PATHS: Readonly<Record<string, string>> = Object.freeze({
+  agora: MOUNTED_EVENTS_PATH,
+  devplatform: '/v1/events/devplatform',
+  policy: '/v1/events/policy',
+})
+
+/** Rewrite this module's webhook onto its own path. Everything else passes through untouched. */
+function splitEventRoutes(specs: readonly RouteSpec<Db>[]): readonly RouteSpec<Db>[] {
+  return specs.map((spec) =>
+    spec.path === EVENTS_PATH ? { ...spec, path: MOUNTED_EVENTS_PATH } : spec,
+  )
+}
+
+/**
+ * The bare path, answering 410 and naming where each module went.
+ *
+ * **410 and not 404**, and the difference is the whole point of having the route at all. A 404 is
+ * "there is no such thing here", which is what a mis-typed URL gets and what a producer's relay
+ * would retry against for ever while an operator looked for a routing fault. A 410 is "this
+ * existed and was deliberately withdrawn", it carries the three replacements in its body, and it
+ * lands in `outbox_deliveries.last_error` where the sweep that re-points subscriptions can read
+ * it.
+ *
+ * It is a route rather than a fall-through so that the reply says something. Without it the bare
+ * path is the kernel's generic 404 and a subscription row nobody re-pointed looks exactly like a
+ * typo.
+ */
+function goneEventsRoute(): RouteSpec<Db> {
+  return {
+    method: 'POST',
+    path: EVENTS_PATH,
+    handle: async (ctx) => {
+      ctx.log.warn('a delivery arrived at the pre-merge event path', { path: EVENTS_PATH })
+      return {
+        status: 410,
+        body: {
+          error: {
+            code: 'events_path_split',
+            message:
+              'this process serves three event webhooks, one per module, because they do not ' +
+              'verify with the same key. Re-point this subscription at the module that owns the ' +
+              'topic.',
+            paths: SPLIT_EVENT_PATHS,
+            requestId: ctx.requestId,
+          },
+        },
+      }
+    },
+  }
 }
 
 /**
