@@ -125,6 +125,10 @@ jobs:
     # container, which can only make one.
     name: The migrator, on five empty databases
     runs-on: ubuntu-latest
+    # `contents: read`, declared, so the default GITHUB_TOKEN can read the public sibling repos when
+    # the fallback below reaches for it. The reusable `ci` job declares the same at its call site.
+    permissions:
+      contents: read
     services:
       postgres:
         image: postgres:17-alpine
@@ -176,12 +180,23 @@ jobs:
           done
       # Temporary: the three checkouts exist only because the runtime and contracts packages are
       # unpublished. On publish this collapses to one checkout.
+      #
+      # ── THE TOKEN FALLS BACK TO github.token, AND THAT IS WHAT MAKES THIS RUN ──────────────────
+      #
+      # `ESTATE_READ_TOKEN` is not defined for this repository — a bare `token:
+      # ${{ secrets.ESTATE_READ_TOKEN }}` interpolates to the empty string, and checkout@v4 rejects
+      # an EXPLICIT-but-empty token with "Input required and not supplied: token" rather than
+      # falling back on its own. The reusable `service-ci.yml` this repository's `ci` job calls has
+      # always guarded against exactly this — `token: ${{ secrets.estate_token || github.token }}`
+      # — and its sibling checkouts succeed here on the fallback, which proves micro-runtime and
+      # micro-contracts are readable by the default job token. This bespoke job carries the same
+      # guard rather than assuming a secret the reusable path never assumed.
       - uses: actions/checkout@v4
         with: { path: agora }
       - uses: actions/checkout@v4
-        with: { repository: cloudsforge-online/micro-runtime, path: runtime, token: "${{ secrets.ESTATE_READ_TOKEN }}" }
+        with: { repository: cloudsforge-online/micro-runtime, path: runtime, token: "${{ secrets.ESTATE_READ_TOKEN || github.token }}" }
       - uses: actions/checkout@v4
-        with: { repository: cloudsforge-online/micro-contracts, path: contracts, token: "${{ secrets.ESTATE_READ_TOKEN }}" }
+        with: { repository: cloudsforge-online/micro-contracts, path: contracts, token: "${{ secrets.ESTATE_READ_TOKEN || github.token }}" }
       - uses: pnpm/action-setup@v4
         with: { version: 11.9.0 }
       - uses: actions/setup-node@v4

@@ -135,8 +135,8 @@ export interface ServerDeps {
   readonly beforeScrape?: () => Promise<void>
 }
 
-export const READ_SCOPE = 'studio:read'
-export const WRITE_SCOPE = 'studio:write'
+export const STUDIO_READ_SCOPE = 'studio:read'
+export const STUDIO_WRITE_SCOPE = 'studio:write'
 
 /**
  * Domain metrics, declared rather than inferred from a log line.
@@ -577,7 +577,7 @@ function buildRoutes(): Route[] {
     define('GET', '/v1/backend', async (ctx, deps) => {
       if (ctx.url.searchParams.get('probe') === '1') {
         const principal = await authenticate(ctx, deps)
-        if (principal.kind === 'service') requireScope(principal, WRITE_SCOPE)
+        if (principal.kind === 'service') requireScope(principal, STUDIO_WRITE_SCOPE)
         ctx.log.info('backend probe requested; this makes a real image call')
         return { status: 200, body: await deps.preflight.probe() }
       }
@@ -586,7 +586,7 @@ function buildRoutes(): Route[] {
 
     define('POST', '/v1/brand-kits', async (ctx, deps) => {
       const principal = await authenticate(ctx, deps)
-      if (principal.kind === 'service') requireScope(principal, WRITE_SCOPE)
+      if (principal.kind === 'service') requireScope(principal, STUDIO_WRITE_SCOPE)
       const body = await readJson(ctx.req)
       const ownerSubject = subjectOf(principal, body)
 
@@ -634,7 +634,7 @@ function buildRoutes(): Route[] {
      */
     define('GET', '/v1/brand-kits', async (ctx, deps) => {
       const principal = await authenticate(ctx, deps)
-      if (principal.kind === 'service') requireScope(principal, READ_SCOPE)
+      if (principal.kind === 'service') requireScope(principal, STUDIO_READ_SCOPE)
       const owner = subjectOf(principal, { userId: ctx.url.searchParams.get('userId') ?? undefined })
       const kits = await deps.kits.listForOwner(owner, readLimit(ctx))
       return { status: 200, body: { brandKits: kits } }
@@ -642,7 +642,7 @@ function buildRoutes(): Route[] {
 
     define('GET', '/v1/brand-kits/:id', async (ctx, deps) => {
       const principal = await authenticate(ctx, deps)
-      if (principal.kind === 'service') requireScope(principal, READ_SCOPE)
+      if (principal.kind === 'service') requireScope(principal, STUDIO_READ_SCOPE)
       return { status: 200, body: { brandKit: await ownedKit(ctx, deps, principal) } }
     }),
 
@@ -657,7 +657,7 @@ function buildRoutes(): Route[] {
      */
     define('GET', '/v1/brand-kits/:id/assets', async (ctx, deps) => {
       const principal = await authenticate(ctx, deps)
-      if (principal.kind === 'service') requireScope(principal, READ_SCOPE)
+      if (principal.kind === 'service') requireScope(principal, STUDIO_READ_SCOPE)
       // Ownership is decided by the KIT, through the same helper every other kit route uses, so a
       // caller cannot read another owner's assets by naming their kit.
       const kit = await ownedKit(ctx, deps, principal)
@@ -679,7 +679,7 @@ function buildRoutes(): Route[] {
      */
     define('POST', '/v1/brand-kits/:id/generate', async (ctx, deps) => {
       const principal = await authenticate(ctx, deps)
-      if (principal.kind === 'service') requireScope(principal, WRITE_SCOPE)
+      if (principal.kind === 'service') requireScope(principal, STUDIO_WRITE_SCOPE)
       const kit = await ownedKit(ctx, deps, principal)
       const body = await readJson(ctx.req)
 
@@ -756,7 +756,7 @@ function buildRoutes(): Route[] {
     /** The status URL a 202 points at. Cheap, pollable, and it reaches no model. */
     define('GET', '/v1/jobs/:id', async (ctx, deps) => {
       const principal = await authenticate(ctx, deps)
-      if (principal.kind === 'service') requireScope(principal, READ_SCOPE)
+      if (principal.kind === 'service') requireScope(principal, STUDIO_READ_SCOPE)
       const job = await deps.reads.findJob(idOf(ctx))
       if (!job) throw new NotFoundError('no such generation job')
       assertOwned(principal, job.ownerSubject)
@@ -765,7 +765,7 @@ function buildRoutes(): Route[] {
 
     define('GET', '/v1/assets/:id', async (ctx, deps) => {
       const principal = await authenticate(ctx, deps)
-      if (principal.kind === 'service') requireScope(principal, READ_SCOPE)
+      if (principal.kind === 'service') requireScope(principal, STUDIO_READ_SCOPE)
       const { asset, job } = await readableAsset(ctx, deps, principal)
       return {
         status: 200,
@@ -845,7 +845,7 @@ function buildRoutes(): Route[] {
         asset = candidate
       } else {
         const principal = await authenticate(ctx, deps)
-        if (principal.kind === 'service') requireScope(principal, READ_SCOPE)
+        if (principal.kind === 'service') requireScope(principal, STUDIO_READ_SCOPE)
         asset = (await readableAsset(ctx, deps, principal)).asset
       }
 
@@ -902,7 +902,7 @@ function buildRoutes(): Route[] {
      */
     define('POST', '/v1/uploads', async (ctx, deps) => {
       const principal = await authenticate(ctx, deps)
-      if (principal.kind === 'service') requireScope(principal, WRITE_SCOPE)
+      if (principal.kind === 'service') requireScope(principal, STUDIO_WRITE_SCOPE)
       // An upload is stored against the authenticated user. A service token may act for a named
       // subject, which is how `market` attributes a listing photo to its seller.
       const ownerSubject = subjectOf(principal, {
@@ -962,7 +962,7 @@ function buildRoutes(): Route[] {
      */
     define('POST', '/v1/assets/:id/visibility', async (ctx, deps) => {
       const principal = await authenticate(ctx, deps)
-      if (principal.kind === 'service') requireScope(principal, WRITE_SCOPE)
+      if (principal.kind === 'service') requireScope(principal, STUDIO_WRITE_SCOPE)
       // Ownership is checked through the same helper the read path uses, so the two cannot drift.
       const { asset } = await readableAsset(ctx, deps, principal)
 

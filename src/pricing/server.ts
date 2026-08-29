@@ -87,8 +87,8 @@ export interface ServerDeps {
  * and deciding what an asset with no market is worth are different authorities: a reporting job
  * needs the first and must never have the second.
  */
-export const READ_SCOPE = 'pricing:read'
-export const ADMIN_SCOPE = 'pricing:admin'
+export const PRICING_READ_SCOPE = 'pricing:read'
+export const PRICING_ADMIN_SCOPE = 'pricing:admin'
 
 const DEFAULT_HISTORY_LIMIT = 100
 const MAX_HISTORY_LIMIT = 1_000
@@ -584,15 +584,15 @@ async function authenticate(ctx: RequestContext, deps: ServerDeps): Promise<Prin
 async function requireAdminAuthority(ctx: RequestContext, deps: ServerDeps): Promise<Principal> {
   const principal = await authenticate(ctx, deps)
   if (isAdmin(principal)) return principal
-  if (hasScope(principal, ADMIN_SCOPE)) return principal
-  throw new ForbiddenError(`${ADMIN_SCOPE} or role:admin`)
+  if (hasScope(principal, PRICING_ADMIN_SCOPE)) return principal
+  throw new ForbiddenError(`${PRICING_ADMIN_SCOPE} or role:admin`)
 }
 
 async function requireReadAuthority(ctx: RequestContext, deps: ServerDeps): Promise<Principal> {
   const principal = await authenticate(ctx, deps)
   if (isAdmin(principal)) return principal
-  if (hasScope(principal, READ_SCOPE)) return principal
-  throw new ForbiddenError(`${READ_SCOPE} or role:admin`)
+  if (hasScope(principal, PRICING_READ_SCOPE)) return principal
+  throw new ForbiddenError(`${PRICING_READ_SCOPE} or role:admin`)
 }
 
 function actorOf(principal: Principal): string {

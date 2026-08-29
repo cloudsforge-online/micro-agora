@@ -32,8 +32,8 @@ import { Lifecycle } from '@cloudsforge/lifecycle'
 import { Metrics, registerHttpMetrics } from '@cloudsforge/telemetry'
 import type { Principal } from '@cloudsforge/auth'
 import {
-  ADMIN_SCOPE,
-  INTROSPECT_SCOPE,
+  DEVPLATFORM_ADMIN_SCOPE,
+  DEVPLATFORM_INTROSPECT_SCOPE,
   createServer,
   registerServiceMetrics,
   type PrincipalVerifier,
@@ -231,7 +231,7 @@ test('the server', { skip }, async (t) => {
    * all of them, which is the shape SD-05 exists to retire.
    */
   function operatorService(): string {
-    return serviceToken([ADMIN_SCOPE])
+    return serviceToken([DEVPLATFORM_ADMIN_SCOPE])
   }
 
   function operatorUser(): string {
@@ -643,7 +643,7 @@ test('the server', { skip }, async (t) => {
     )
 
     const ok = await call('POST', '/internal/keys/verify', {
-      token: serviceToken([INTROSPECT_SCOPE]),
+      token: serviceToken([DEVPLATFORM_INTROSPECT_SCOPE]),
       body: { key: secretKey },
     })
     assert.equal(ok.status, 200)
@@ -657,7 +657,7 @@ test('the server', { skip }, async (t) => {
     // The CALLER's credential was fine; the credential it asked about was not. Conflating the two
     // makes a caller retry its own service token.
     const answer = await call('POST', '/internal/keys/verify', {
-      token: serviceToken([INTROSPECT_SCOPE]),
+      token: serviceToken([DEVPLATFORM_INTROSPECT_SCOPE]),
       body: { key: `cfk_live_${'a'.repeat(16)}_${'b'.repeat(52)}` },
     })
     assert.equal(answer.status, 200)
@@ -683,7 +683,7 @@ test('the server', { skip }, async (t) => {
     })
     assert.equal(set.status, 200)
 
-    const service = serviceToken([INTROSPECT_SCOPE])
+    const service = serviceToken([DEVPLATFORM_INTROSPECT_SCOPE])
     const meter = () => call('POST', '/internal/usage', { token: service, body: { keyId, route: '/v1/rates' } })
 
     await withinOneMinuteWindow()
@@ -709,7 +709,7 @@ test('the server', { skip }, async (t) => {
       body: { environment: 'live', period: 'minute', maxUnits: 5 },
     })
 
-    const service = serviceToken([INTROSPECT_SCOPE])
+    const service = serviceToken([DEVPLATFORM_INTROSPECT_SCOPE])
     // Same boundary hazard: 25 concurrent calls that straddle it would see 10 allowed, not 5.
     await withinOneMinuteWindow()
     const answers = await Promise.all(
@@ -730,7 +730,7 @@ test('the server', { skip }, async (t) => {
     })
     const clientId = (client.json['client'] as Record<string, unknown>)['clientId'] as string
     const clientSecret = client.json['clientSecret'] as string
-    const service = serviceToken([INTROSPECT_SCOPE])
+    const service = serviceToken([DEVPLATFORM_INTROSPECT_SCOPE])
 
     const ok = await call('POST', '/internal/oauth/verify', {
       token: service,
@@ -1146,7 +1146,7 @@ test('the server', { skip }, async (t) => {
     for (const [label, options] of [
       ['anonymous', {}],
       ['the developer who submitted it', { token }],
-      ['a service token with no operator scope', { token: serviceToken([INTROSPECT_SCOPE]) }],
+      ['a service token with no operator scope', { token: serviceToken([DEVPLATFORM_INTROSPECT_SCOPE]) }],
     ] as const) {
       const refused = await call('GET', '/v1/apps/pending', options)
       assert.ok(refused.status === 401 || refused.status === 403, `${label} read the review queue`)
@@ -1345,7 +1345,7 @@ test('the server', { skip }, async (t) => {
     // It is not a member of anything, so there is no `project:write` path open to it either.
     const { project } = await projectWithDefaultQuotas()
     const answer = await call('PUT', `/v1/projects/${project['id'] as string}/quotas`, {
-      token: serviceToken([INTROSPECT_SCOPE]),
+      token: serviceToken([DEVPLATFORM_INTROSPECT_SCOPE]),
       body: { environment: 'live', period: 'minute', maxUnits: 1 },
     })
     assert.equal(answer.status, 403)

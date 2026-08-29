@@ -197,11 +197,11 @@ export interface PrincipalVerifier {
   principal(token: string): Promise<Principal>
 }
 
-export const READ_SCOPE: Scope = 'devplatform:read'
-export const WRITE_SCOPE: Scope = 'devplatform:write'
+export const DEVPLATFORM_READ_SCOPE: Scope = 'devplatform:read'
+export const DEVPLATFORM_WRITE_SCOPE: Scope = 'devplatform:write'
 
 /** The service scope an internal caller needs to introspect a credential. */
-export const INTROSPECT_SCOPE = 'devplatform:introspect'
+export const DEVPLATFORM_INTROSPECT_SCOPE = 'devplatform:introspect'
 
 /**
  * The service scope that makes a caller a platform OPERATOR.
@@ -211,7 +211,7 @@ export const INTROSPECT_SCOPE = 'devplatform:introspect'
  * project's quota would be the defect this scope exists to close. Matched with `includes`, never
  * with `hasScope` — see the file header.
  */
-export const ADMIN_SCOPE = 'devplatform:admin'
+export const DEVPLATFORM_ADMIN_SCOPE = 'devplatform:admin'
 
 /** The platform role on a USER token that makes its holder an operator. `runtime/packages/auth`:24. */
 export const ADMIN_ROLE = 'admin'
@@ -661,14 +661,14 @@ async function authenticate(ctx: RequestContext, deps: ServerDeps): Promise<Call
  * could make itself an operator could still raise its own project's limit.
  */
 function isOperator(caller: AnyPrincipal): boolean {
-  if (caller.kind === 'service') return caller.scopes.includes(ADMIN_SCOPE)
+  if (caller.kind === 'service') return caller.scopes.includes(DEVPLATFORM_ADMIN_SCOPE)
   if (caller.kind === 'user') return caller.roles.includes(ADMIN_ROLE)
   return false
 }
 
 /** `market/src/server.ts`'s shape: the scope or the role, and nothing else. */
 function requireOperator(caller: AnyPrincipal): void {
-  if (!isOperator(caller)) throw new ForbiddenError(`${ADMIN_SCOPE} or role:admin`)
+  if (!isOperator(caller)) throw new ForbiddenError(`${DEVPLATFORM_ADMIN_SCOPE} or role:admin`)
 }
 
 /** A user token only. The console surface. */
@@ -740,7 +740,7 @@ async function authoriseProjectAs(
 
   if (caller.kind === 'key') {
     if (caller.key.projectId !== project.id) throw new NotFoundError('no such project')
-    const scope = need === 'write' ? WRITE_SCOPE : READ_SCOPE
+    const scope = need === 'write' ? DEVPLATFORM_WRITE_SCOPE : DEVPLATFORM_READ_SCOPE
     // Exact match. A key with no scopes reaches nothing; there is no wildcard. See scopes.ts.
     if (!grantsScope(caller.key.scopes, scope)) throw new ForbiddenError(scope)
     return { caller, project }
@@ -1172,7 +1172,7 @@ function buildRoutes(): Route[] {
         project = found
       } else if (caller.kind === 'service') {
         // A service token with no operator scope. Not "close enough" — see the file header.
-        throw new ForbiddenError(`${ADMIN_SCOPE} or role:admin`)
+        throw new ForbiddenError(`${DEVPLATFORM_ADMIN_SCOPE} or role:admin`)
       } else {
         ;({ project } = await authoriseProjectAs(ctx.sql, caller, deps, ctx.params['id'] ?? '', 'write'))
       }
@@ -1184,13 +1184,13 @@ function buildRoutes(): Route[] {
         const current = await findQuota(ctx.sql, target.id, period)
         if (!current) {
           throw new ForbiddenError(
-            `${ADMIN_SCOPE} or role:admin — this environment has no ${period} quota, and creating ` +
+            `${DEVPLATFORM_ADMIN_SCOPE} or role:admin — this environment has no ${period} quota, and creating ` +
               'one is an operator decision. A project:write caller may only lower a limit that exists',
           )
         }
         if (maxUnits > current.maxUnits) {
           throw new ForbiddenError(
-            `${ADMIN_SCOPE} or role:admin — a project:write caller may lower a quota (currently ` +
+            `${DEVPLATFORM_ADMIN_SCOPE} or role:admin — a project:write caller may lower a quota (currently ` +
               `${current.maxUnits} per ${period}) but never raise it`,
           )
         }
@@ -1515,7 +1515,7 @@ function buildRoutes(): Route[] {
      * service token.
      */
     define('POST', '/internal/keys/verify', async (ctx, deps) => {
-      await authenticateService(ctx, deps, INTROSPECT_SCOPE)
+      await authenticateService(ctx, deps, DEVPLATFORM_INTROSPECT_SCOPE)
       const body = await readJson(ctx.req)
       const presented = requireString(body, 'key')
       const outcome = await authenticateKey(ctx.sql, presented, {
@@ -1535,7 +1535,7 @@ function buildRoutes(): Route[] {
 
     /** The client-secret check identity's token endpoint would call. See `oauth.ts`. */
     define('POST', '/internal/oauth/verify', async (ctx, deps) => {
-      await authenticateService(ctx, deps, INTROSPECT_SCOPE)
+      await authenticateService(ctx, deps, DEVPLATFORM_INTROSPECT_SCOPE)
       const body = await readJson(ctx.req)
       const outcome = await verifyClientSecret(
         ctx.sql,
@@ -1569,7 +1569,7 @@ function buildRoutes(): Route[] {
      * would be per-replica, and a per-replica quota is not a quota.
      */
     define('POST', '/internal/usage', async (ctx, deps) => {
-      await authenticateService(ctx, deps, INTROSPECT_SCOPE)
+      await authenticateService(ctx, deps, DEVPLATFORM_INTROSPECT_SCOPE)
       const body = await readJson(ctx.req)
       const key = await findApiKey(ctx.sql, requireString(body, 'keyId'))
       if (!key) throw new NotFoundError('no such api key')

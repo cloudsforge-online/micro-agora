@@ -11,8 +11,8 @@ import { AUDIENCE, Verifier } from '@cloudsforge/auth'
 import { Lifecycle, type Probe } from '@cloudsforge/lifecycle'
 import { Logger, Metrics, registerHttpMetrics } from '@cloudsforge/telemetry'
 import {
-  READ_SCOPE,
-  WRITE_SCOPE,
+  STUDIO_READ_SCOPE,
+  STUDIO_WRITE_SCOPE,
   createServer,
   registerServiceMetrics,
   type GenerationRequester,
@@ -575,7 +575,7 @@ test('a service token needs the scope', async () => {
       headers: { authorization: `Bearer ${unscoped}` },
     })
     assert.equal(res.status, 403)
-    assert.match(((await res.json()) as { error: { message: string } }).error.message, new RegExp(READ_SCOPE))
+    assert.match(((await res.json()) as { error: { message: string } }).error.message, new RegExp(STUDIO_READ_SCOPE))
   })
 })
 
@@ -1320,8 +1320,8 @@ test('a drain reports unready and refuses to claim jobs before the socket closes
 })
 
 test('the write scope is required to generate', async () => {
-  const reader = await sign({ sub: 'service:hub-api', scopes: [READ_SCOPE] })
-  const writer = await sign({ sub: 'service:hub-api', scopes: [WRITE_SCOPE] })
+  const reader = await sign({ sub: 'service:hub-api', scopes: [STUDIO_READ_SCOPE] })
+  const writer = await sign({ sub: 'service:hub-api', scopes: [STUDIO_WRITE_SCOPE] })
   await withServer({}, async (h) => {
     const body = JSON.stringify({ kind: 'mark' })
     const refused = await fetch(`${h.url}/v1/brand-kits/kit-1/generate`, {
