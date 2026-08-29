@@ -49,7 +49,7 @@ import { migrateTestDb as migratePricingDb, openDb as openPricingDb } from '../p
  *
  * micro-deploy `docs/service-merge-plan.md`. There is no `index.ts` in this directory any more:
  * this service's composition root became `./module.ts`, and the process that runs it is
- * `../index.ts`, which builds five modules on one listener.
+ * `../index.ts`, which builds twelve modules on one listener.
  *
  * REPOINTED RATHER THAN DROPPED, and it is a stronger test than it was. What it exists to prove is
  * that the asset-root check and probe are WIRED — `server.test.ts` proves the probe works when it
@@ -58,8 +58,8 @@ import { migrateTestDb as migratePricingDb, openDb as openPricingDb } from '../p
  * registers it in a loop), so there is strictly more to lose and this is still the only thing
  * watching it.
  *
- * It also became the only test anywhere that boots all five modules against five real databases,
- * which is why it now needs all five DSNs — see `skip` below.
+ * It also became the only test anywhere that boots all twelve modules against twelve real databases,
+ * which is why it now needs all twelve DSNs — see `skip` below.
  */
 const here = dirname(fileURLToPath(import.meta.url))
 const entrypoint = join(here, '..', 'index.ts')
@@ -69,7 +69,7 @@ const entrypoint = join(here, '..', 'index.ts')
  *
  * `../index.ts` calls `assertSchemaAtLeast` for each module before it listens, so a missing DSN is
  * an `exit(1)` with a message about a schema — the precise shape of a check that graded an early
- * return rather than the thing it named. All five or nothing.
+ * return rather than the thing it named. All twelve or nothing.
  *
  * The names are the `_TEST_` spellings `service-ci.yml` exports, one CI database per declared
  * `database-env-var` entry.
@@ -80,6 +80,17 @@ const MERGED_TEST_DSNS = {
   POLICY_DATABASE_URL: 'POLICY_TEST_DATABASE_URL',
   PRICING_DATABASE_URL: 'PRICING_TEST_DATABASE_URL',
   STUDIO_DATABASE_URL: 'STUDIO_TEST_DATABASE_URL',
+  // Wave M5b added the commerce/games tier. `../index.ts` asserts EVERY module's
+  // schema before it listens, so this boot must carry all twelve DSNs or the
+  // merged process exits 1 on the first missing one — which is why the five
+  // studio boot tests fail with only the M5a five here.
+  COMMUNITY_DATABASE_URL: 'COMMUNITY_TEST_DATABASE_URL',
+  MARKET_DATABASE_URL: 'MARKET_TEST_DATABASE_URL',
+  BILLING_DATABASE_URL: 'BILLING_TEST_DATABASE_URL',
+  MINT_DATABASE_URL: 'MINT_TEST_DATABASE_URL',
+  FORESIGHT_DATABASE_URL: 'FORESIGHT_TEST_DATABASE_URL',
+  WORLDS_DATABASE_URL: 'WORLDS_TEST_DATABASE_URL',
+  TESSERA_DATABASE_URL: 'TESSERA_TEST_DATABASE_URL',
 } as const
 
 const missingDsn = Object.values(MERGED_TEST_DSNS).filter((name) => {
@@ -96,7 +107,7 @@ const missingDsn = Object.values(MERGED_TEST_DSNS).filter((name) => {
  * somebody to fix a thing that was never broken. It names every missing one.
  *
  * `service-ci.yml`'s skip scan reads this line: a message naming variables THIS job exported is
- * fatal, which is what it must be, because all five are declared in `database-env-var`.
+ * fatal, which is what it must be, because all twelve are declared in `database-env-var`.
  */
 const mergedSkip = missingDsn.length === 0 ? false : `set ${missingDsn.join(', ')}`
 
