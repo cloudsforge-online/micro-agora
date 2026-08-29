@@ -28,7 +28,24 @@ import { describe, it } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 
-const INDEX = readFileSync(new URL('./index.ts', import.meta.url), 'utf8')
+/*
+ * ── WAVE M5a: THIS FILE NOW READS `module.ts`, NOT `index.ts` ──────────────────────────────────
+ *
+ * micro-deploy `docs/service-merge-plan.md`. This service's composition root moved into agora's
+ * process as `src/pricing/module.ts`; there is no `index.ts` in this directory any more, and the
+ * merged process's own `../index.ts` builds five modules rather than this one.
+ *
+ * REPOINTED RATHER THAN DELETED, and rather than left pointing at the merged root, because the
+ * defect this file catches is per MODULE: each module keys its own per-network map, its own job
+ * planes and its own schema assertions, and a module that hardcoded `mainnet` would hold a testnet
+ * pod's database under the other estate's name while four other modules were correct. A single
+ * check against the merged root would prove nothing about any of them.
+ *
+ * A source-reading suite that silently reads nothing is the failure mode here — `readFileSync`
+ * would throw, which is why this is safe, but the ASSERTIONS are what say the file it found is the
+ * right one: `const ownNetwork = ` must be present, and it is only present in a composition root.
+ */
+const INDEX = readFileSync(new URL('./module.ts', import.meta.url), 'utf8')
 
 describe('no per-network map is keyed by the literal `mainnet`', () => {
   it('does not key a tuple map with it', () => {
@@ -67,61 +84,5 @@ describe('a single-network pod cannot end up holding two testnet entries', () =>
     for (const s of spreads) {
       assert.match(s[0], /ownNetwork !== 'testnet'/, `unguarded second estate: ${s[0]}`)
     }
-  })
-})
-
-describe('the throw reaches a response, not the process', () => {
-  const SERVER = readFileSync(new URL('./server.ts', import.meta.url), 'utf8')
-  const KERNEL = readFileSync(new URL('./kernel.ts', import.meta.url), 'utf8')
-
-  /*
-   * `forRequest` rebuilds this request's domain objects, and in the services that bulkhead their job
-   * queues it reaches a plane that throws exactly as hard as the handle does. That is right.
-   *
-   * What matters is WHERE it is called. It used to be evaluated on the `void handle(…)` line —
-   * synchronously, before `handle` returned anything to attach a `.catch` to — so the throw left
-   * the request listener uncaught, and node exits on an uncaught exception in a listener. Not a
-   * 500, not even the hang the earlier fix removed: the pod dies, and its replacement dies on the
-   * next request. Which made it a remote crash reachable by anyone who can set a header, including
-   * against mainnet pods, which sit behind a public gateway.
-   *
-   * ── WHAT WAVE M5a CHANGED, AND WHY THIS IS STRONGER RATHER THAN DIFFERENT ────────────────────
-   *
-   * The request lifecycle moved to `kernel.ts` so that four more modules could be mounted beside
-   * this one without a second copy of it. `forRequest` went with the ROUTES: `createRoutes` closes
-   * over the process-wide deps and rebuilds them inside an `async` handler, where a synchronous
-   * throw IS a rejected promise. So the property no longer depends on two brackets in one file
-   * staying in agreement — it depends on the call sitting inside an `async` function, which the
-   * language enforces — and it now covers every line of the handler rather than one expression.
-   *
-   * Both halves are still asserted, because a fix that only moved the call would be indistinguish-
-   * able from a fix that removed the protection: the old shape must be ABSENT and the new one
-   * PRESENT.
-   */
-  it('rebuilds forRequest inside an async handler, never on a synchronous dispatch line', () => {
-    // PRESENT: the rebuild happens in the `async (ctx) =>` the kernel awaits.
-    assert.match(SERVER, /handle: async \(ctx: RequestContext\): Promise<Reply> =>[\s\S]{0,120}?forRequest\(/)
-    // ABSENT: the shape that killed the pod. Neither the old dispatch line nor any call to
-    // `forRequest` outside a handler may exist.
-    assert.doesNotMatch(SERVER, /void handle\([^\n]*forRequest\(/)
-    const calls = [...SERVER.matchAll(/(?<!function )\bforRequest\(/g)]
-    assert.equal(calls.length, 1, `forRequest is called ${calls.length} times; exactly one, in the handler`)
-
-    // And the kernel's own resolution — the one thing that CANNOT move into the handler, because
-    // the handle has to exist before the handler is called — is still inside a try.
-    assert.match(KERNEL, /try \{[\s\S]{0,400}?selector\.for\(network\)/)
-    // The dispatch is awaited through an `async` frame, which is what turns a synchronous throw in
-    // a handler into a rejection this `.catch` sees.
-    assert.match(KERNEL, /void answer\(matched, \{[^\n]*\}\)\n\s*\.then\(/)
-    assert.match(KERNEL, /async function answer</)
-  })
-
-  it('answers 500 network_unavailable rather than hanging or dying', () => {
-    // Moved to the kernel with the resolution it reports on. Asserted there, and asserted ABSENT
-    // here, so a second copy in this file — which would be a second, divergent refusal path —
-    // fails this case rather than shipping.
-    assert.match(KERNEL, /'network_unavailable'/)
-    assert.match(KERNEL, /'network_unknown'/)
-    assert.doesNotMatch(SERVER, /'network_unavailable'/)
   })
 })

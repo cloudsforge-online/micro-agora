@@ -47,12 +47,7 @@
  */
 
 import { timingSafeEqual } from 'node:crypto'
-import {
-  createServer as createHttpServer,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse,
-} from 'node:http'
+import type { IncomingMessage, Server } from 'node:http'
 import {
   ForbiddenError,
   TokenError,
@@ -63,10 +58,20 @@ import {
   type Principal,
 } from '@cloudsforge/auth'
 import type { Lifecycle } from '@cloudsforge/lifecycle'
-import { Metrics, newRequestId, type Logger } from '@cloudsforge/telemetry'
-import { NetworkUnknownError, requestNetwork, type Network } from '@cloudsforge/http'
+import { Metrics, type Logger } from '@cloudsforge/telemetry'
+import type { Network } from '@cloudsforge/http'
 import type { NetworkSql } from '@cloudsforge/db'
 import type { JobQueue } from '@cloudsforge/jobs'
+import {
+  OPERATIONAL_ROUTES,
+  errorReply,
+  headerOf,
+  mountRoutes,
+  type MountDeps,
+  type Reply,
+  type RequestContext as KernelContext,
+  type RouteSpec,
+} from './kernel.ts'
 import { SIGNATURE_HEADER, signEvent, withInbox, withOutbox, type Db } from './outbox.ts'
 import { RateLimitError } from './ratelimit.ts'
 import {
@@ -199,7 +204,7 @@ export interface PrincipalVerifier {
  */
 export const USER_DELETED_TOPIC = 'identity.user.deleted'
 
-export interface ServerDeps {
+export interface ServerDeps extends MountDeps {
   readonly lifecycle: Lifecycle
   readonly logger: Logger
   readonly metrics: Metrics
@@ -335,7 +340,6 @@ export function registerServiceMetrics(metrics: Metrics): Metrics {
     })
 }
 
-const SAFE_REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/
 const SAFE_IDEMPOTENCY_KEY = /^[A-Za-z0-9_:.-]{8,200}$/
 const MAX_BODY_BYTES = 256 * 1024
 const IDEMPOTENCY_HEADER = 'idempotency-key'
@@ -367,72 +371,30 @@ const ACTION_KINDS = new Set<ModerationActionKind>([
   'sensitive_applied',
 ])
 
-interface Reply {
-  readonly status: number
-  readonly body?: unknown
-  readonly text?: string
-  readonly contentType?: string
-  readonly headers?: Record<string, string>
-}
-
-interface RequestContext {
-  readonly req: IncomingMessage
-  readonly url: URL
-  readonly requestId: string
-  readonly log: Logger
-  readonly params: Readonly<Record<string, string>>
-  /**
-   * The network THIS REQUEST belongs to, from the `CF-Network` header the gateway stamped.
-   *
-   * Not a property of the process. One agora serves both estates since the network consolidation
-   * (micro-deploy `docs/network-consolidation.md`), so "which network am I" has no answer and
-   * "which network is this request" has exactly one.
-   */
-  readonly network: Network
-  /**
-   * The database handle for `network`, resolved ONCE, at the edge of the request.
-   *
-   * There are twenty-five direct uses and five domain dep objects downstream, and a boundary
-   * enforced at thirty places has thirty chances to be wrong — each one a route reading mainnet
-   * rows while serving a testnet reader, a query that SUCCEEDS and says nothing. Resolving once
-   * and handing the result down makes the wrong thing unspellable: `deps.sql` is a `NetworkSql`
-   * and has no query methods at all.
-   */
-  readonly sql: Db
-}
+/**
+ * This service's request context: the kernel's, with the database handle typed as THIS module's
+ * `Db` rather than the minimal `Sql` the kernel names.
+ *
+ * The kernel takes `TSql` as a parameter precisely so this alias can exist: every read in this file
+ * uses postgres.js tagged templates, which the minimal interface does not publish.
+ */
+type RequestContext = KernelContext<Db>
 
 /**
- * Routes that answer without belonging to a network.
+ * One route as this file declares it: the shape `buildRoutes` produces, before `createRoutes`
+ * turns it into a `RouteSpec` the kernel can mount.
  *
- * Kubelet probes the first two and Prometheus scrapes the third; none arrives through the gateway,
- * so none carries `CF-Network`. Three literal paths rather than a prefix or an opt-in flag: this is
- * an exemption from a data-isolation boundary, and it should take a deliberate edit here to widen
- * it. None of the three queries the database.
+ * `handle` still takes `(ctx, deps)` here, and that is deliberate rather than left over. The `deps`
+ * it takes is the PER-REQUEST bag `forRequest` builds — five domain records rebuilt over this
+ * request's handle — and threading it through this local type is what let thirty-two route sites
+ * stay untouched through both the network consolidation and this merge. The kernel never sees it:
+ * `createRoutes` closes over it, so a mounted module's routes cannot reach this module's stores.
  */
-const OPERATIONAL_ROUTES: ReadonlySet<string> = new Set(['/livez', '/readyz', '/metrics'])
-
 interface Route {
   readonly method: string
   /** Used verbatim as the metric label, so cardinality is bounded by the number of routes. */
   readonly path: string
-  readonly pattern: RegExp
   readonly handle: (ctx: RequestContext, deps: ServerDeps) => Promise<Reply>
-}
-
-/**
- * Compile `/v1/posts/:id` into a matcher. The segment pattern excludes `/` so a parameter cannot
- * swallow the rest of the path and make one route answer for another.
- */
-function compile(path: string): RegExp {
-  const source = path
-    .split('/')
-    .map((segment) =>
-      segment.startsWith(':')
-        ? `(?<${segment.slice(1)}>[^/]+)`
-        : segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-    )
-    .join('/')
-  return new RegExp(`^${source}$`)
 }
 
 class BadRequestError extends Error {
@@ -449,138 +411,156 @@ class NotFoundError extends Error {
   }
 }
 
+/**
+ * The routes this module contributes, each closed over this module's dependency bag.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * **THIS IS WHERE `forRequest` MOVED TO, AND THE MOVE IS THE POINT.**
+ *
+ * It used to be called by the request listener, synchronously, before there was a promise to
+ * attach a `.catch` to — so a throw from it was an uncaught exception in a `node:http` listener,
+ * and node exits on those. It sat inside a `try` for exactly that reason, and `ownnetwork.test.ts`
+ * pinned the placement.
+ *
+ * Here it is inside an `async` function, so a throw IS a rejected promise, which `kernel.ts`'s
+ * dispatch already catches into a 500 with the request id on it. That is strictly stronger than
+ * the `try` was: it covers everything the handler does, not only the one expression, and it does
+ * not depend on two files keeping a bracket in agreement. `ownnetwork.test.ts` now pins THIS.
+ *
+ * `ctx.sql` is already resolved when this runs — the kernel resolved it from `RouteSpec.sql`, or
+ * from this module's own selector when the route named none — so the rebuild cannot pick a
+ * network, only spread the handle it was given across the five domain records.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function createRoutes(deps: ServerDeps): readonly RouteSpec<Db>[] {
+  return buildRoutes().map((route) => ({
+    method: route.method,
+    path: route.path,
+    // `async` rather than a bare call, so a handler — or `forRequest` itself — that throws
+    // SYNCHRONOUSLY becomes a rejected promise rather than an exception escaping the kernel's
+    // dispatch expression.
+    handle: async (ctx: RequestContext): Promise<Reply> => await handle(route, ctx, forRequest(deps, ctx.sql)),
+  }))
+}
+
+/**
+ * The standalone listener: this module's routes and nothing else.
+ *
+ * Unchanged in behaviour by wave M5a — `server.test.ts` drives this, and that suite passing
+ * unchanged is the evidence that the merge did not alter the square's own surface.
+ */
 export function createServer(deps: ServerDeps): Server {
-  const routes = buildRoutes()
-  let inFlight = 0
+  return mountRoutes(createRoutes(deps), deps)
+}
 
-  return createHttpServer((req, res) => {
-    const startedAt = process.hrtime.bigint()
-    const presented = headerOf(req, 'x-request-id')
-    const requestId = presented && SAFE_REQUEST_ID.test(presented) ? presented : newRequestId()
+/**
+ * The merged listener: this module's routes, then every mounted module's.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * ONE FLAT TABLE, MATCHED FIRST-WINS, so a mounted module must not declare a path this one already
+ * serves — the second copy would simply be dead, and a dead route looks exactly like a live one.
+ * Each module drops the four paths it must not serve (`UNMOUNTED` in its own `server.ts`) and
+ * `mergedroutes.test.ts` asserts the remaining overlap between EVERY pair is empty, so a
+ * collision appearing later is a red test rather than a handler that quietly stops being reached.
+ *
+ * Order among the mounted modules therefore decides nothing. It is fixed anyway, because a route
+ * table whose order depends on object iteration is a table whose behaviour depends on it too.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function createMergedServer(deps: ServerDeps, mounted: readonly RouteSpec<Db>[]): Server {
+  return mountRoutes([...splitEventRoutes(createRoutes(deps)), goneEventsRoute(), ...mounted], deps)
+}
 
-    res.setHeader('x-request-id', requestId)
+/** The webhook path this module serves STANDALONE. Three of the five modules mount this exact path. */
+export const EVENTS_PATH = '/v1/events'
 
-    const url = new URL(req.url ?? '/', `http://${headerOf(req, 'host') ?? 'localhost'}`)
-    const method = req.method ?? 'GET'
+/**
+ * The webhook path this module serves INSIDE the merged process.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * **THREE MODULES MOUNT `POST /v1/events`, AND THEY DO NOT VERIFY WITH THE SAME KEY.**
+ *
+ * agora verifies against `OUTBOX_SIGNING_SECRET`. policy verifies against `OUTBOX_ACCEPT_SECRETS`
+ * falling back to `OUTBOX_SIGNING_SECRET`, and treats an EMPTY list as "cannot verify yet" — a
+ * 503, deliberately, rather than accepting anything. devplatform verifies against
+ * `DEVPLATFORM_INGEST_SECRETS`, a variable of its own, required at boot, and answers 401 rather
+ * than 403 on a bad signature.
+ *
+ * So the emberkin arrangement — verify ONCE at the shared route and fan out to every module that
+ * subscribes — is not available here. That is honest in THAT process only because every module in
+ * it reads the same estate-wide secret, and `mergedupstreams.test.ts` is what keeps it true. Here
+ * it would mean one of three keys silently deciding for the other two.
+ *
+ * This is wave M2's finding at larger scale — "a CNAME moves a host, not a path" — and it takes
+ * M2's answer: each module serves its OWN suffixed path with its OWN key against its OWN inbox,
+ * and the bare path answers 410 naming the split. `mergedevents.test.ts` proves all three, and
+ * that this module's own path moved too — leaving agora on the bare path would make a
+ * mis-pointed devplatform or policy subscription land HERE, verify against the wrong key, and
+ * either 403 for ever or (for a delivery signed with the estate-wide key) be accepted by the
+ * wrong module.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export const MOUNTED_EVENTS_PATH = '/v1/events/agora'
 
-    let matched: Route | undefined
-    let params: Record<string, string> = {}
-    for (const route of routes) {
-      if (route.method !== method) continue
-      const match = route.pattern.exec(url.pathname)
-      if (match) {
-        matched = route
-        params = { ...match.groups }
-        break
+/**
+ * Where the other two webhooks went, as LITERALS rather than imports.
+ *
+ * Importing `MOUNTED_EVENTS_PATH` from `./devplatform/server.ts` and `./policy/server.ts` would be
+ * one fewer place for these strings to live, and it is refused for a layering reason: this file is
+ * the host module's own surface and must not pull two mounted modules' import graphs into every
+ * suite that drives it. A literal plus a test is the same guarantee without the coupling —
+ * `mergedevents.test.ts` asserts each module's own constant equals its entry here, so a module that
+ * renamed its path and left this behind is a red test rather than a 410 body pointing at nothing.
+ */
+export const SPLIT_EVENT_PATHS: Readonly<Record<string, string>> = Object.freeze({
+  agora: MOUNTED_EVENTS_PATH,
+  devplatform: '/v1/events/devplatform',
+  policy: '/v1/events/policy',
+})
+
+/** Rewrite this module's webhook onto its own path. Everything else passes through untouched. */
+function splitEventRoutes(specs: readonly RouteSpec<Db>[]): readonly RouteSpec<Db>[] {
+  return specs.map((spec) =>
+    spec.path === EVENTS_PATH ? { ...spec, path: MOUNTED_EVENTS_PATH } : spec,
+  )
+}
+
+/**
+ * The bare path, answering 410 and naming where each module went.
+ *
+ * **410 and not 404**, and the difference is the whole point of having the route at all. A 404 is
+ * "there is no such thing here", which is what a mis-typed URL gets and what a producer's relay
+ * would retry against for ever while an operator looked for a routing fault. A 410 is "this
+ * existed and was deliberately withdrawn", it carries the three replacements in its body, and it
+ * lands in `outbox_deliveries.last_error` where the sweep that re-points subscriptions can read
+ * it.
+ *
+ * It is a route rather than a fall-through so that the reply says something. Without it the bare
+ * path is the kernel's generic 404 and a subscription row nobody re-pointed looks exactly like a
+ * typo.
+ */
+function goneEventsRoute(): RouteSpec<Db> {
+  return {
+    method: 'POST',
+    path: EVENTS_PATH,
+    handle: async (ctx) => {
+      ctx.log.warn('a delivery arrived at the pre-merge event path', { path: EVENTS_PATH })
+      return {
+        status: 410,
+        body: {
+          error: {
+            code: 'events_path_split',
+            message:
+              'this process serves three event webhooks, one per module, because they do not ' +
+              'verify with the same key. Re-point this subscription at the module that owns the ' +
+              'topic.',
+            paths: SPLIT_EVENT_PATHS,
+            requestId: ctx.requestId,
+          },
+        },
       }
-    }
-
-    const routeLabel = matched ? matched.path : 'unmatched'
-    const log = deps.logger.child({ requestId, method, route: routeLabel })
-
-    inFlight += 1
-    deps.metrics.set('http_requests_in_flight', inFlight)
-
-    const finish = (status: number, metricNetwork: string) => {
-      inFlight -= 1
-      deps.metrics.set('http_requests_in_flight', inFlight)
-      const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6
-      // `network` on every series. Prometheus labelled it per TARGET, which distinguishes nothing
-      // once one target serves both estates — micro-org#398 in a form where the information would
-      // never have been recorded at all.
-      deps.metrics.increment('http_requests_total', {
-        method,
-        route: routeLabel,
-        status: String(status),
-        network: metricNetwork,
-      })
-      deps.metrics.observe('http_request_duration_ms', durationMs, {
-        method,
-        route: routeLabel,
-        network: metricNetwork,
-      })
-    }
-
-    // ── THE NETWORK, THEN THE HANDLE, BEFORE ANY ROUTE RUNS ──────────────────────────────────
-    //
-    // `requestNetwork` REFUSES an unstamped request rather than assuming mainnet. A 500 here is a
-    // routing fault made loud; the alternative is a misrouted testnet write landing in mainnet as
-    // an ordinary-looking row that nothing will ever flag.
-    //
-    // ── EXCEPT FOR THE OPERATIONAL ENDPOINTS, AND THAT IS NOT A LOOPHOLE ──────────────────────
-    //
-    // `/livez`, `/readyz` and `/metrics` are probed by KUBELET and scraped by PROMETHEUS. Neither
-    // goes through the gateway, so neither carries `CF-Network` and neither ever will. Refusing
-    // them makes every health probe a 500, the pod never becomes ready, and the deployment
-    // CrashLoopBackOffs — which is exactly what CI caught on the first build of this change.
-    //
-    // They are safe to exempt because none of them touches the database: they answer from the
-    // Lifecycle and the metrics registry. `ctx.sql` is still populated for them, from a network
-    // they did not name, so the exemption is narrow by construction — a route added to this set
-    // that DID query would be reading an arbitrary network, which is why the set is three literal
-    // paths rather than a prefix or a flag anyone can set.
-    const networkless = matched !== undefined && OPERATIONAL_ROUTES.has(matched.path)
-
-    let network: Network
-    try {
-      network = networkless
-        ? (deps.singleNetwork ?? deps.sql.networks[0] ?? 'mainnet')
-        : requestNetwork(req.headers, deps.singleNetwork ? { fallback: deps.singleNetwork } : {})
-    } catch (err) {
-      log.error('request carries no usable network', {
-        err: err instanceof NetworkUnknownError ? err.message : err,
-      })
-      send(
-        res,
-        errorReply(500, 'network_unknown', 'this request could not be attributed to a network', requestId),
-        requestId,
-      )
-      finish(500, 'unknown')
-      return
-    }
-
-    // ── RESOLVED INSIDE A TRY, AND THAT IS NOT DEFENSIVE PADDING ───────────────────────────────
-    //
-    // `deps.sql.for()` THROWS when this deployment holds no handle for that network, and that
-    // refusal is the safety property the consolidation rests on — better a loud 500 than a query
-    // answered out of the other estate's rows.
-    //
-    // It runs BEFORE `handle` returns a promise, so an uncaught throw escapes the `void` expression
-    // past a `.catch` that is not attached yet, and the listener returns having sent NOTHING. The
-    // connection then hangs until the client gives up: the one path the design most depends on
-    // being loud was the one path that was silent.
-    // `forRequest` is resolved HERE, not on the dispatch line, and that placement is the whole
-    // point. It rebuilds this request's domain objects, and in the services that bulkhead their
-    // job queues it reaches a per-network plane that throws just as hard as the handle does.
-    // One line lower it was OUTSIDE this try and still synchronous — so the throw was an
-    // unhandled exception in a request listener, and node exits on those. The pod died on the
-    // first request naming a network it did not hold, and its replacement died on the next one.
-    let sql: Db
-    let scoped: ReturnType<typeof forRequest>
-    try {
-      sql = deps.sql.for(network) as unknown as Db
-      scoped = forRequest(deps, sql)
-    } catch (err) {
-      log.error('no usable database handle for this request', { err, network })
-      send(
-        res,
-        errorReply(500, 'network_unavailable', 'this deployment cannot serve that network', requestId),
-        requestId,
-      )
-      finish(500, network)
-      return
-    }
-    void handle(matched, { req, url, requestId, log, params, network, sql }, scoped)
-      .then((reply) => {
-        send(res, reply, requestId)
-        finish(reply.status, network)
-      })
-      .catch((err: unknown) => {
-        log.error('request handler threw after mapping', { err })
-        send(res, errorReply(500, 'internal', 'the request could not be completed', requestId), requestId)
-        finish(500, network)
-      })
-  })
+    },
+  }
 }
 
 /**
@@ -706,7 +686,7 @@ function buildRoutes(): Route[] {
     method: string,
     path: string,
     handler: (ctx: RequestContext, deps: ServerDeps) => Promise<Reply>,
-  ): Route => ({ method, path, pattern: compile(path), handle: handler })
+  ): Route => ({ method, path, handle: handler })
 
   return [
     define('GET', '/livez', async (_ctx, deps) => ({ status: 200, body: deps.lifecycle.livez() })),
@@ -1941,32 +1921,12 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
-/**
- * The error shape, identical on every failure and always carrying the request id.
- *
- * The id in the body rather than only in the header is what makes a support conversation work: a
- * user can read back what their browser showed them, and it joins to the log line and the trace.
+/*
+ * `errorReply`, `send` and `headerOf` moved to `./kernel.ts` with the request lifecycle. They are
+ * imported at the top of this file: the error SHAPE — the request id in the body as well as the
+ * header, which is what makes a support conversation work — is a property of the process now, not
+ * of this module, and five modules answering in five shapes would be five shapes a client has to
+ * know about.
  */
-function errorReply(status: number, code: string, message: string, requestId: string): Reply {
-  return { status, body: { error: { code, message, requestId } } }
-}
-
-function send(res: ServerResponse, reply: Reply, requestId: string): void {
-  if (res.writableEnded) return
-  const payload = reply.text ?? `${JSON.stringify(reply.body ?? {})}\n`
-  res.writeHead(reply.status, {
-    ...(reply.headers ?? {}),
-    'content-type': reply.contentType ?? 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(payload),
-    'x-request-id': requestId,
-    'cache-control': 'no-store',
-  })
-  res.end(payload)
-}
-
-function headerOf(req: IncomingMessage, name: string): string | undefined {
-  const value = req.headers[name]
-  return Array.isArray(value) ? value[0] : value
-}
 
 export type { EmailPrefs, Reply }

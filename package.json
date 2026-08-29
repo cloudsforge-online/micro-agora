@@ -14,7 +14,8 @@
     "migrate": "node --import tsx src/migrator.ts",
     "typecheck": "tsc --noEmit",
     "_test": "--test-concurrency=1 is required, not a preference: every database test file truncates this service's tables between cases, and node:test runs FILES in parallel by default. A TRUNCATE takes an AccessExclusiveLock, so one file's reset deadlocks against another file's inserts (40P01). The ledger learned this the hard way, market copied it, and this service copied market. Cases within a file already run in order.",
-    "test": "node --import tsx --test --test-concurrency=1 src/*.test.ts",
+    "_test_glob": "node:test does not recurse. Every mounted module's suites must be named explicitly or they silently do not run — and `skipped 0` would not say so, because node:test does not count cases inside a describe it never loaded.",
+    "test": "node --import tsx --test --test-concurrency=1 src/*.test.ts src/devplatform/*.test.ts src/policy/*.test.ts src/pricing/*.test.ts src/studio/*.test.ts",
     "build": "tsc -p tsconfig.build.json",
     "dev": "node --import tsx --watch src/index.ts",
     "check": "pnpm typecheck && pnpm test"
@@ -33,6 +34,7 @@
   "dependencies": {
     "@cloudsforge/auth": "link:../runtime/packages/auth",
     "@cloudsforge/contracts-auth": "link:../contracts/packages/auth",
+    "@cloudsforge/contracts-chain": "link:../contracts/packages/chain",
     "@cloudsforge/contracts-events": "link:../contracts/packages/events",
     "@cloudsforge/db": "link:../runtime/packages/db",
     "@cloudsforge/http": "link:../runtime/packages/http",
@@ -45,6 +47,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "jose": "^5.9.6",
     "typescript": "^5.7.2"
   }
 }
