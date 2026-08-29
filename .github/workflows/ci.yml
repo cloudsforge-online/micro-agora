@@ -18,7 +18,32 @@ jobs:
     uses: cloudsforge-online/micro-org/.github/workflows/service-ci.yml@main
     with:
       service: agora
-      database-env-var: AGORA_DATABASE_URL
+      # ── FIVE DATABASES, DECLARED, BECAUSE THIS DEPLOYABLE IS FIVE MODULES ──────────────────
+      #
+      # Wave M5a of micro-deploy `docs/service-merge-plan.md`: agora absorbed devplatform, policy,
+      # pricing and studio as the seed of `platform`. The schemas are NOT merged — `inbox` and
+      # `jobs` exist in ALL FIVE, with `outbox`, `event_subscriptions` and `outbox_deliveries` in
+      # four — so the reusable workflow creates `ci_agora_test`, `ci_devplatform_test`,
+      # `ci_policy_test`, `ci_pricing_test` and `ci_studio_test` and exports the `_TEST_` pair for
+      # each. Pointing any two at one database would let one suite's TRUNCATE empty another's rows
+      # mid-test, which reads as a flake rather than as a configuration mistake.
+      #
+      # AND THE SKIP SCAN IS WHY EVERY NAME MUST BE HERE RATHER THAN LEFT IMPLICIT. A name in this
+      # list is treated as OWN: if its suite skips, the build FAILS. A name absent from it skipping
+      # would be filed as "a cross-service tier stood down" and go green — which is exactly the
+      # false green that block exists to end, and it would hide 340 devplatform, 110 policy, 118
+      # pricing and 225 studio tests not running.
+      #
+      # `skipped 0` is NOT evidence on its own: node:test does not count the cases inside a
+      # `describe` it never entered. `src/merged.test.ts` and `src/studio/boot.test.ts` both name
+      # every missing variable in their skip reason for exactly that reason.
+      #
+      # `_TESTNET` names are deliberately NOT here: the workflow's suffix check demands
+      # `%_DATABASE_URL` and would fail the build on `AGORA_DATABASE_URL_TESTNET`. Nothing is lost
+      # — no suite reads a testnet DSN.
+      database-env-var: >-
+        AGORA_DATABASE_URL DEVPLATFORM_DATABASE_URL POLICY_DATABASE_URL
+        PRICING_DATABASE_URL STUDIO_DATABASE_URL
       # The port the IMAGE binds, which is what the smoke test probes — `src/env.ts` defaults PORT
       # to 4150 and nothing below sets it. The estate overrides PORT to 4000 like every other
       # service and maps 127.0.0.1:4150 to it; that is a deployment fact and not this one.
@@ -47,12 +72,34 @@ jobs:
       # IDENTITY_URL is deliberately absent: it defaults to IDENTITY_ISSUER, which is set here.
       # POLICY_URL is absent too, and its absence is the supported mode worth smoking — `env.ts`
       # returns `''`, `policyclient.ts` reports DEGRADED rather than pretending a decision, and no
-      # moderation call is made at boot.
+      # moderation call is made at boot. That mode is now MORE interesting rather than less: policy
+      # runs inside this same process, so an unset POLICY_URL is a gate that is absent from a
+      # container that is holding the gate.
+      #
+      # ── WHAT WAVE M5a ADDED TO THIS LIST: TWO LINES ─────────────────────────────────────────
+      #
+      # `DEVPLATFORM_INGEST_SECRETS` and `STUDIO_ASSET_ROOT`, and nothing else. The four modules'
+      # database URLs arrive from `database-env-var` above, and every other variable they read —
+      # `IDENTITY_*`, `OUTBOX_SIGNING_SECRET` — is already here under the same estate-wide name.
+      # That this list grew by two lines IS the merge's argument stated as configuration.
+      #
+      # Neither is decoration. `DEVPLATFORM_INGEST_SECRETS` is REQUIRED by that module's `env.ts`
+      # and the container would exit before serving /livez without it; it is `@generate` rather than
+      # a literal for the same micro-org #142 reason as the line above it. `STUDIO_ASSET_ROOT` is
+      # the variable whose absence once resolved to a root-owned `/app/out` under a non-root user —
+      # every generation failed EACCES while the container reported healthy — and the merged process
+      # now refuses to BOOT on an unwritable root, so without this line the smoke test would fail
+      # with the check working.
+      #
+      # EVERY LINE IN THIS BLOCK BECOMES ONE `-e` ARGUMENT, so a comment inside it is passed to
+      # `docker run` as an environment variable named `#`. The commentary lives out here.
       smoke-env: |
         IDENTITY_JWKS_URL=http://127.0.0.1:4001/.well-known/jwks.json
         IDENTITY_ISSUER=http://127.0.0.1:4001
         OUTBOX_SIGNING_SECRET=@generate
         AGORA_IDENTITY_CREDENTIAL=@credential
+        DEVPLATFORM_INGEST_SECRETS=@generate
+        STUDIO_ASSET_ROOT=/tmp/studio-assets
     secrets:
       # @cloudsforge/* resolves by link:../runtime and link:../contracts, so CI checks out
       # micro-runtime and micro-contracts as siblings — both private, so the workflow needs a
@@ -63,6 +110,151 @@ jobs:
     permissions:
       contents: read
       packages: read
+
+  migrate:
+    # ── BESPOKE, AND IT HAS TO STAY BESPOKE ────────────────────────────────────────────────────
+    #
+    # The reusable workflow's `migrate-command` is a single command line and its image job runs it
+    # once. That is still true and still fine for the IMAGE smoke test — `pnpm migrate` migrates
+    # every database this deployable owns in one process, sequentially, because `src/migrator.ts`
+    # builds one target list from all five modules. What this job adds is what the reusable one
+    # cannot: the migrator run AS a deploy runs it, on EMPTY databases, and run TWICE to prove it is
+    # idempotent — because a deploy re-runs the one-shot Job on every release.
+    #
+    # Wave M5a made it five databases. Four of them are created below rather than by the service
+    # container, which can only make one.
+    name: The migrator, on five empty databases
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        # Not a secret: this database lives for one job, is reachable only from it, and holds nothing.
+        env:
+          POSTGRES_USER: agora
+          POSTGRES_PASSWORD: agora
+          POSTGRES_DB: agora_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U agora"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AGORA_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/agora_test
+      # THE OTHER FOUR. Each distinct from the first, and `src/migratortargets.ts` refuses to issue
+      # a statement if any two ever stop being: `inbox` and `jobs` exist in all five schemas, and
+      # `outbox`, `event_subscriptions` and `outbox_deliveries` in four, so one shared database is
+      # two `create table inbox` racing and then the later modules' tables never created — with a
+      # migrator that exits 0. Created in the step below; the service container makes only
+      # POSTGRES_DB.
+      DEVPLATFORM_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/devplatform_test
+      POLICY_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/policy_test
+      PRICING_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/pricing_test
+      STUDIO_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/studio_test
+      IDENTITY_JWKS_URL: http://127.0.0.1:4001/.well-known/jwks.json
+      IDENTITY_ISSUER: http://127.0.0.1:4001
+      # OUTBOX_SIGNING_SECRET and DEVPLATFORM_INGEST_SECRETS are deliberately NOT here — see the
+      # first step below.
+    steps:
+      # THE KEY MATERIAL IS GENERATED, not written into the mapping above.
+      #
+      # `@generate` is a feature of service-ci.yml's `smoke-env` input and nothing substitutes it in
+      # a bespoke job's `env:`, so a literal here would reach the migrator as written — and the boot
+      # guard refuses the literals that used to sit in files like this one (micro-org #212).
+      # `src/migrator.ts` imports the modules' `module.ts`, which import their `env.ts`, so this job
+      # validates all five configurations and would exit 1 before touching a schema.
+      #
+      # Generated per run and thrown away. Masked before either is written, so a later step that
+      # dumps its environment cannot put one in the log; nothing here ever prints them.
+      - name: Real key material, for this run only
+        run: |
+          set -euo pipefail
+          for name in OUTBOX_SIGNING_SECRET DEVPLATFORM_INGEST_SECRETS; do
+            secret="$(openssl rand -base64 48)"
+            echo "::add-mask::$secret"
+            echo "${name}=${secret}" >> "$GITHUB_ENV"
+          done
+      # Temporary: the three checkouts exist only because the runtime and contracts packages are
+      # unpublished. On publish this collapses to one checkout.
+      - uses: actions/checkout@v4
+        with: { path: agora }
+      - uses: actions/checkout@v4
+        with: { repository: cloudsforge-online/micro-runtime, path: runtime, token: "${{ secrets.ESTATE_READ_TOKEN }}" }
+      - uses: actions/checkout@v4
+        with: { repository: cloudsforge-online/micro-contracts, path: contracts, token: "${{ secrets.ESTATE_READ_TOKEN }}" }
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.9.0 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: agora/pnpm-lock.yaml
+      # `link:` resolves to the sibling's own node_modules, so the siblings must be installed
+      # before this repository is — without this, `node --import tsx src/migrator.ts` cannot load
+      # the runtime source's own imports (@opentelemetry/api, jose) and dies at the first one.
+      - name: Install the sibling runtime and contracts
+        run: |
+          set -euo pipefail
+          pnpm --dir runtime install --frozen-lockfile
+          pnpm --dir contracts install --frozen-lockfile
+      - name: Install
+        working-directory: agora
+        run: pnpm install --frozen-lockfile
+      - name: The absorbed modules' databases
+        # The Postgres service creates one database. The other four are made here, deliberately as
+        # separate databases on the same server rather than schemas in the first — see the note on
+        # DEVPLATFORM_DATABASE_URL above.
+        run: |
+          set -euo pipefail
+          for db in devplatform_test policy_test pricing_test studio_test; do
+            PGPASSWORD=agora psql -h 127.0.0.1 -U agora -d agora_test -v ON_ERROR_STOP=1 \
+              -c "create database ${db}"
+          done
+      - name: Migrate all five test databases
+        working-directory: agora
+        run: pnpm migrate
+      - name: Migrating twice is a no-op
+        working-directory: agora
+        # A deploy re-runs the one-shot job on every release; a migrator that is not idempotent turns
+        # the second deploy of an unchanged schema into an outage.
+        run: pnpm migrate
+      - name: All five schemas are actually there, and each in its OWN database
+        # The failure this whole arrangement exists to prevent is a migrator that exits 0 having
+        # created nothing. So the tables are counted rather than the exit code trusted, and each
+        # database is checked for tables only the OTHER modules own — which is what a shared ledger,
+        # or a target list pointed twice at one DSN, would produce.
+        run: |
+          set -euo pipefail
+          q() { PGPASSWORD=agora psql -h 127.0.0.1 -U agora -d "$1" -tAc "$2"; }
+          # database:minimum-tables — the module's own table count plus `schema_migrations`. A floor
+          # rather than an equality, so adding a migration is not a CI edit; high enough that a
+          # module whose migrator never ran cannot clear it.
+          for pair in agora_test:28 devplatform_test:21 policy_test:11 pricing_test:9 studio_test:10; do
+            db="${pair%%:*}"; floor="${pair##*:}"
+            n=$(q "$db" "select count(*) from information_schema.tables where table_schema='public'")
+            echo "${db}: ${n} tables (floor ${floor})"
+            [ "$n" -ge "$floor" ] || { echo "::error::${db} is missing its schema — that module's migrator did not run"; exit 1; }
+          done
+          # One table each module owns ALONE — `src/migratortargets.test.ts` measures that these
+          # five are unique to their owner. Each must be absent from the other four databases, or
+          # the ledgers have been confused. Every ordered pair, because a check that only compared
+          # each module against ONE other is a check five modules can walk through.
+          for owner in agora_test:voices devplatform_test:api_keys policy_test:policy_decisions pricing_test:price_quotes studio_test:brand_kits; do
+            odb="${owner%%:*}"; table="${owner##*:}"
+            [ "$(q "$odb" "select count(*) from information_schema.tables where table_name='${table}'")" = "1" ] \
+              || { echo "::error::${odb} does not have its own ${table}"; exit 1; }
+            for other in agora_test devplatform_test policy_test pricing_test studio_test; do
+              [ "$other" = "$odb" ] && continue
+              [ "$(q "$other" "select count(*) from information_schema.tables where table_name='${table}'")" = "0" ] \
+                || { echo "::error::${odb}'s ${table} was created in ${other}"; exit 1; }
+            done
+          done
+          # And each ledger records its OWN module's versions, under its own service name.
+          for db in agora_test devplatform_test policy_test pricing_test studio_test; do
+            n=$(q "$db" "select count(*) from schema_migrations")
+            echo "${db}: ${n} migrations recorded"
+            [ "$n" -gt 0 ] || { echo "::error::${db} has an empty migration ledger"; exit 1; }
+          done
 
   # The image this service ships, published where a deploy can pull it. Without this job the
   # repository builds an image in CI and throws it away, and `cfctl release` writes a manifest
