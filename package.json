@@ -1,6 +1,6 @@
 {
   "name": "@cloudsforge/agora",
-  "version": "2026.8.103",
+  "version": "2026.8.104",
   "private": true,
   "description": "Forge Agora. The ecosystem's public square: voices, posts, replies, quotes, echoes, sparks, follows, circles, tags, whispers, notifications and moderation. Reverse-chronological only — there is no ranked feed, and no audience count is ever public.",
   "license": "MIT",
