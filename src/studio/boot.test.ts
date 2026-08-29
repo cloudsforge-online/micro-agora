@@ -43,6 +43,15 @@ import {
 } from '../devplatform/testsupport.ts'
 import { migrateTestDb as migratePolicyDb, openDb as openPolicyDb } from '../policy/testsupport.ts'
 import { migrateTestDb as migratePricingDb, openDb as openPricingDb } from '../pricing/testsupport.ts'
+// Wave M5b's seven. Same shape: each opens its OWN database from its OWN `_TEST_`
+// variable and applies its OWN migrations — the merged boot asserts all twelve.
+import { migrateTestDb as migrateCommunityDb, openDb as openCommunityDb } from '../community/testsupport.ts'
+import { migrateTestDb as migrateMarketDb, openDb as openMarketDb } from '../market/testsupport.ts'
+import { migrateTestDb as migrateBillingDb, openDb as openBillingDb } from '../billing/testsupport.ts'
+import { migrateTestDb as migrateMintDb, openDb as openMintDb } from '../mint/testsupport.ts'
+import { migrateTestDb as migrateForesightDb, openDb as openForesightDb } from '../foresight/testsupport.ts'
+import { migrateTestDb as migrateWorldsDb, openDb as openWorldsDb } from '../worlds/testsupport.ts'
+import { migrateTestDb as migrateTesseraDb, openDb as openTesseraDb } from '../tessera/testsupport.ts'
 
 /*
  * ── WAVE M5a: THIS BOOTS THE MERGED PROCESS, NOT THIS MODULE ──────────────────────────────────
@@ -268,7 +277,7 @@ function migratedSchema(): Promise<void> {
     // FIVE schemas, because the merged process asserts five before it listens. Each module's own
     // `migrateTestDb` runs that module's own `MIGRATIONS` against that module's own DSN — never a
     // shared handle, for the reason `../migratortargets.ts` refuses at runtime: `inbox` and `jobs`
-    // exist in all five, so one shared database is two `create table inbox` racing and the later
+    // exist in all twelve, so one shared database is two `create table inbox` racing and the later
     // modules' tables never created, with a green migrator.
     const modules: ReadonlyArray<readonly [string, () => postgres.Sql, (sql: postgres.Sql) => Promise<void>]> = [
       ['agora', openAgoraDb, migrateAgoraDb],
@@ -276,6 +285,13 @@ function migratedSchema(): Promise<void> {
       ['policy', openPolicyDb, migratePolicyDb],
       ['pricing', openPricingDb, migratePricingDb],
       ['studio', openDb, migrateTestDb],
+      ['community', openCommunityDb, migrateCommunityDb],
+      ['market', openMarketDb, migrateMarketDb],
+      ['billing', openBillingDb, migrateBillingDb],
+      ['mint', openMintDb, migrateMintDb],
+      ['foresight', openForesightDb, migrateForesightDb],
+      ['worlds', openWorldsDb, migrateWorldsDb],
+      ['tessera', openTesseraDb, migrateTesseraDb],
     ]
     for (const [name, open, migrate] of modules) {
       const sql = open()
