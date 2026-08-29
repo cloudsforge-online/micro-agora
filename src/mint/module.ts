@@ -375,10 +375,14 @@ export async function createMintModule(host: HostRuntime): Promise<MintModule> {
           }),
         ]),
       ),
-      // HARD, but a LOCAL check rather than a peer's health: it fails only when no credential is
-      // configured at all — a replica that cannot sign a single deploy and will not fix itself — and
-      // an identity OUTAGE returns warn, so one bad minute in identity does not empty every balancer.
-      serviceTokenProbe(identityTokens),
+      // SOFT in the merged process, DOWNGRADED from the standalone's hard. Standalone, a mint that
+      // could not sign a single deploy had nothing to do and marking the token hard was right. Here
+      // that same probe would take all TWELVE modules — the square, community, market, every one —
+      // out of the balancer because mint alone holds no credential, which is the failure agora keeps
+      // `policy` soft to avoid and the reason billing wraps this same probe soft. `serviceTokenProbe`
+      // hardcodes `kind: 'hard'`, so the kind is overridden here rather than passed. A missing mint
+      // credential is still said at boot (`index.ts`) and on the `agora_service_token_usable` gauge.
+      { ...serviceTokenProbe(identityTokens), kind: 'soft' as const },
       // SOFT, all four. Custody being down means no new signature can be made, but this module must
       // stay in rotation to keep ADVANCING deploys that are already signed. Marking any hard would
       // take all twelve modules offline for one module's upstream incident — the same reason agora

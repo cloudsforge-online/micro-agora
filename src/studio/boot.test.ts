@@ -156,6 +156,32 @@ function spawnService(
       // the literal that used to sit here reads as a placeholder and is now refused
       // (micro-org #142).
       OUTBOX_SIGNING_SECRET: randomBytes(48).toString('base64'),
+      // ── WAVE M5b: the seven commerce/games modules each boot-validate their OWN env ──────────
+      //
+      // `../index.ts` now builds TWELVE modules and every one asserts its own configuration at
+      // import (`env.ts`) before the process can listen. These are the boot-REQUIRED variables the
+      // seven new modules add on top of the estate-wide keys above. The upstream URLs point at
+      // loopback DEAD ports — the boot must not depend on a peer, and nothing in a boot dials one —
+      // and the two module secrets are GENERATED per run for the same micro-org #142 reason as the
+      // two above. `POLICY_URL` (market, foresight) is already set above. `FORESIGHT_ORACLE_*` take
+      // the plain shapes the migrator's own CI job proved (`ci` / `ci-oracle`).
+      LEDGER_URL: 'http://127.0.0.1:4102',
+      LEDGER_BASE_URL: 'http://127.0.0.1:4103',
+      POLICY_BASE_URL: 'http://127.0.0.1:4104',
+      INDEXER_URL: 'http://127.0.0.1:4105',
+      CUSTODY_URL: 'http://127.0.0.1:4106',
+      PRICING_URL: 'http://127.0.0.1:4107',
+      BILLING_URL: 'http://127.0.0.1:4108',
+      BILLING_LEDGER_URL: 'http://127.0.0.1:4109',
+      BILLING_PRICING_URL: 'http://127.0.0.1:4110',
+      COMMUNITY_INGEST_SECRETS: randomBytes(48).toString('base64'),
+      INBOUND_SIGNING_SECRET: randomBytes(48).toString('base64'),
+      // foresight requires two on-chain addresses (its `address()` validator, not `required()`);
+      // the zero-ish placeholders the migrator's CI job proved the validator accepts.
+      FORESIGHT_TREASURY_ADDRESS: '0x0000000000000000000000000000000000000001',
+      FORESIGHT_ORACLE_ADDRESS: '0x0000000000000000000000000000000000000002',
+      FORESIGHT_ORACLE_USER_ID: 'ci',
+      FORESIGHT_ORACLE_ORDER_ID: 'ci-oracle',
       LOG_LEVEL: 'info',
       // No Foundry credential: booting must never depend on a spend credential, and a boot test
       // that could spend money is a boot test nobody runs.
