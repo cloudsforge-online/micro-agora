@@ -36,6 +36,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { compile } from './kernel.ts'
 import type { RouteSpec } from './kernel.ts'
@@ -64,10 +65,38 @@ import {
   MOUNTED_EVENTS_PATH as TESSERA_EVENTS,
   REMOUNTED_PATHS as TESSERA_REMOUNTS,
 } from './tessera/server.ts'
+// ── WAVE M5c: FOUR MORE TABLES, AND TWO OF THEM ARRIVE NESTED ─────────────────────────────────
+//
+// activity and lantern were already merged processes, so each contributes TWO tables: its own and
+// the one nested inside it. They are scraped SEPARATELY here rather than through their host
+// modules' concatenation, because the property this file measures is pairwise — notify shadowing
+// market would be just as dead as notify shadowing activity, and a host that handed up one merged
+// array would hide which half of it collided.
+//
+// `mountableRoutes` is imported from each module's `server.ts` and NEVER from its `module.ts`.
+// That is not style: `activity/notify/module.ts` and `lantern/analytics/module.ts` import their own
+// `env.ts`, which validates at import and calls `process.exit(1)` on an incomplete configuration —
+// so importing either here would kill this runner outright, in a suite that deliberately needs no
+// database and no secrets. Wave M5c moved both functions to `server.ts` for exactly this reason.
+import { mountableRoutes as activity, INGEST_PATHS } from './activity/server.ts'
+import { mountableRoutes as notify, NOTIFY_INGEST_PATH } from './activity/notify/server.ts'
+import { mountableRoutes as lantern } from './lantern/server.ts'
+import {
+  mountableRoutes as analytics,
+  MOUNTED_INGEST_PATH as ANALYTICS_INGEST,
+} from './lantern/analytics/server.ts'
+import { ACTIVITY_INGEST_PATH } from './activity/routes.ts'
 
 interface Entry {
   readonly method: string
   readonly path: string
+  /**
+   * A fallback is NEVER matched by path — `mountRoutes` lifts it out of the matching table and runs
+   * it only when nothing else answered. It is carried here so the shadow check can skip it (a
+   * fallback cannot shadow anything, and `compile('unmatched')` would be a meaningless pattern) and
+   * so the case at the end can assert there is exactly one in the process.
+   */
+  readonly fallback?: true
 }
 
 /**
@@ -80,8 +109,13 @@ interface Entry {
 type Mountable = (deps: never, sql: never) => readonly RouteSpec<Db>[]
 const PLACEHOLDER = {} as never
 function scrape(mountable: Mountable): Entry[] {
-  return mountable(PLACEHOLDER, PLACEHOLDER).map((spec) => ({ method: spec.method, path: spec.path }))
+  return mountable(PLACEHOLDER, PLACEHOLDER).map((spec) => ({
+    method: spec.method,
+    path: spec.path,
+    ...(spec.fallback ? { fallback: spec.fallback } : {}),
+  }))
 }
+
 
 /*
  * ── AGORA, THE HOST ───────────────────────────────────────────────────────────────────────────
@@ -179,12 +213,16 @@ const TABLES: ReadonlyArray<readonly [string, Entry[]]> = [
   ['foresight', scrape(foresight)],
   ['worlds', scrape(worlds)],
   ['tessera', scrape(tessera)],
+  ['activity', scrape(activity)],
+  ['notify', scrape(notify)],
+  ['lantern', scrape(lantern as never)],
+  ['analytics', scrape(analytics as never)],
 ]
 
 const OPERATIONAL = ['GET /livez', 'GET /readyz', 'GET /metrics'] as const
 const asString = (e: Entry): string => `${e.method} ${e.path}`
 
-describe('the eleven mounted modules drop exactly the paths they must not serve', () => {
+describe('the fifteen mounted modules drop exactly the paths they must not serve', () => {
   it('every mounted module drops all three operational paths', () => {
     for (const [name, entries] of TABLES) {
       if (name === 'agora') continue
@@ -219,6 +257,14 @@ describe('the eleven mounted modules drop exactly the paths they must not serve'
       'foresight:27',
       'worlds:19',
       'tessera:37',
+      // Wave M5c. activity's four are `/feed`, `/feed/:id`, `POST /ingest/activity` and the bare
+      // `POST /ingest` 410 — the only 410 in the process for that path family, and the reason it is
+      // MOUNTED rather than filtered. lantern's eight include its `fallback`, which is a spec in the
+      // array but never a row in the matching table.
+      'activity:4',
+      'notify:8',
+      'lantern:8',
+      'analytics:11',
     ])
     assert.ok(
       TABLES.find(([n]) => n === 'agora')![1].some((e) => e.method === 'POST' && e.path === EVENTS_PATH),
@@ -239,7 +285,12 @@ describe('no path in the merged table shadows another', () => {
   it('no module can answer a request the merged table routes to another', () => {
     const tables = TABLES.map(([name, entries]) => ({
       name,
-      entries: entries.map((e) => ({ method: e.method, path: e.path, pattern: compile(e.path) })),
+      // Fallbacks are excluded because the kernel excludes them: `mountRoutes` lifts a fallback out
+      // of the matching loop entirely, so it can neither shadow nor be shadowed. Including it would
+      // compile `unmatched` into a pattern that means nothing and could only produce noise.
+      entries: entries
+        .filter((e) => !e.fallback)
+        .map((e) => ({ method: e.method, path: e.path, pattern: compile(e.path) })),
     }))
     const clashes: string[] = []
     for (const left of tables) {
@@ -375,5 +426,107 @@ describe('the nine webhook paths, which are the only split routes in the process
       assert.ok(!entries.some((e) => e.endsWith(EVENTS_PATH)), `${name} has no webhook`)
       assert.ok(!(name in SPLIT_EVENT_PATHS), `${name} must not be in the split`)
     }
+  })
+})
+
+/*
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * WAVE M5c: THE PROCESS HAS A SECOND SPLIT PATH FAMILY, AND IT IS NOT `/v1/events`.
+ *
+ * The nine webhooks above are the `POST /v1/events/*` family — the estate's event bus, signed with
+ * `OUTBOX_SIGNING_SECRET` and its per-module variants. The four modules M5c brought in do not use
+ * that family at all: activity, notify and analytics each consume the bus over a path under
+ * `/ingest`, with a signing secret of their own, and lantern serves a browser RUM sink under the
+ * same prefix with no signature at all.
+ *
+ * So the same rule is enforced twice over two disjoint families. Every ingesting module has its OWN
+ * path, its OWN accept-list and its OWN inbox; the bare `POST /ingest` answers 410 naming them; and
+ * nothing verifies once and fans out. `activity/routes.ts`'s `INGEST_PATHS` carries the four-part
+ * argument for why one shared mount would be a downgrade rather than compatibility.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('the ingest paths, which are the process’s OTHER split family', () => {
+  const pathsOf = (name: string): Set<string> =>
+    new Set(TABLES.find(([n]) => n === name)![1].map(asString))
+
+  it('each of the three signed inboxes is served by exactly one module, on a path of its own', () => {
+    const inboxes = [
+      ['activity', ACTIVITY_INGEST_PATH, 'ACTIVITY_INGEST_SECRETS'],
+      ['notify', NOTIFY_INGEST_PATH, 'NOTIFY_INGEST_SIGNING_SECRET'],
+      ['analytics', ANALYTICS_INGEST, 'ANALYTICS_DELIVERY_SECRETS'],
+    ] as const
+
+    assert.equal(
+      new Set(inboxes.map(([, path]) => path)).size,
+      inboxes.length,
+      'two modules share an ingest path, so one accept-list now decides for another module',
+    )
+    for (const [owner, path, secret] of inboxes) {
+      assert.ok(pathsOf(owner).has(`POST ${path}`), `${owner} must serve its own ${path} (${secret})`)
+      const others = TABLES.filter(([name]) => name !== owner).flatMap(([name, entries]) =>
+        entries.filter((e) => asString(e) === `POST ${path}`).map(() => name),
+      )
+      assert.deepEqual(others, [], `${path} is also served by ${others.join(', ')} — one of them is dead`)
+      assert.ok(path.startsWith('/ingest/'), `${path} must be suffixed, not the bare path`)
+    }
+  })
+
+  it('the bare POST /ingest is activity’s 410 and nobody else’s, and it is still routed', () => {
+    // A route rather than a fall-through, for the same reason the bare `/v1/events` is one: without
+    // it the path is a generic 404 and a subscription nobody re-pointed looks exactly like a typo.
+    // A 410 is "this existed and was deliberately withdrawn", and it names the successors.
+    const owners = TABLES.filter(([, entries]) => entries.some((e) => asString(e) === 'POST /ingest'))
+    assert.deepEqual(
+      owners.map(([name]) => name),
+      ['activity'],
+      'exactly one module may answer the retired shared ingest path, and it must answer 410',
+    )
+  })
+
+  it('and the 410 body names exactly the three signed inboxes — not the browser sink', () => {
+    assert.deepEqual(
+      [...INGEST_PATHS],
+      [`POST ${ACTIVITY_INGEST_PATH}`, `POST ${NOTIFY_INGEST_PATH}`, `POST ${ANALYTICS_INGEST}`],
+      'the 410 must name every inbox that verifies a delivery signature, and no others',
+    )
+    // `/ingest/client` is lantern's browser sink: no signature, an origin allowlist instead, and a
+    // payload that is not an event envelope. Naming it here would send a producer holding a signed
+    // delivery at a path that would refuse it for a reason having nothing to do with its key.
+    assert.ok(pathsOf('lantern').has('POST /ingest/client'), 'the RUM sink is still served')
+    assert.ok(
+      !INGEST_PATHS.some((entry) => entry.includes('/ingest/client')),
+      'the browser sink is not an event inbox and must not be offered as one',
+    )
+  })
+})
+
+describe('the process has exactly ONE fallback, and it is lantern’s', () => {
+  /*
+   * `mountRoutes` takes the FIRST fallback in the flat table and matches none of them by path, so a
+   * second one is silently dead — the same hazard as a shadowed route, one level up, and invisible
+   * for the same reason: the module that owns it still passes every one of its own tests, because
+   * in its own process there is nothing in front of it.
+   *
+   * lantern's is the one that matters: an unknown `/ingest/*` from an allowlisted browser origin is
+   * answered with CORS headers, which is what turns `net::ERR_FAILED` — indistinguishable from the
+   * host being down — into a readable 404 naming the paths that do exist. Every frontend in the
+   * estate posted to `/ingest/browser` for months and nobody could see it failing.
+   */
+  it('one module declares one, and it is lantern', () => {
+    const declared = TABLES.flatMap(([name, entries]) =>
+      entries.filter((e) => e.fallback).map(() => name),
+    )
+    assert.deepEqual(declared, ['lantern'], 'a second fallback would be dead on arrival')
+  })
+
+  it('and it answers the same bare 404 the kernel does, so the other fifteen are unchanged', () => {
+    // Read from the source, because the alternative is booting sixteen modules to observe one
+    // string. The last line of lantern's `unmatched` must be the kernel's own 404 — if it drifts,
+    // mounting it changes what a mistyped path in market or billing answers with.
+    const kernel = readFileSync(new URL('./kernel.ts', import.meta.url), 'utf8')
+    const routes = readFileSync(new URL('./lantern/routes.ts', import.meta.url), 'utf8')
+    const miss = /errorReply\(404, 'not_found', `no route for \$\{ctx\.req\.method\} \$\{ctx\.url\.pathname\}`, ctx\.requestId\)/
+    assert.match(kernel, miss, "the kernel's own bare 404 must still be this shape")
+    assert.match(routes, miss, "lantern's fallback must end in exactly the kernel's 404")
   })
 })

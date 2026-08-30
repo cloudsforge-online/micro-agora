@@ -56,7 +56,7 @@ import {
 import {
   RELAY_KIND as DEVPLATFORM_RELAY,
   DELIVER_KIND,
-  ROLLUP_KIND,
+  ROLLUP_KIND as DEVPLATFORM_ROLLUP,
   RETENTION_KIND as DEVPLATFORM_RETENTION,
   registerHandlers as registerDevplatformHandlers,
   type JobDeps as DevplatformJobDeps,
@@ -114,6 +114,26 @@ import {
 import { RELAY_KIND as MINT_RELAY, DEPLOY_KIND, SWEEP_KIND as MINT_SWEEP } from './mint/jobs.ts'
 import { JOB_KINDS as FORESIGHT_KINDS } from './foresight/jobs.ts'
 import { RELAY_KIND as WORLDS_RELAY, PROVISION_KIND, SWEEP_KIND as WORLDS_SWEEP } from './worlds/jobs.ts'
+// ── WAVE M5c: the telemetry and bus-tail tier's job kinds ─────────────────────────────────────
+//
+// Four modules, and they bring the process's THIRD and FOURTH exact kind collisions. Neither is a
+// near-miss and neither is anybody's mistake: `retention` and `rollup` are the two most ordinary
+// names a background job can have, and four modules now register `retention` (devplatform,
+// community, lantern, analytics) while two register `rollup` (lantern, analytics). Aliased on
+// import because the CONSTANT names collide as well, which is harmless — the kind VALUES are what
+// this file pins.
+import { INBOX_PRUNE_KIND, RECORD_PRUNE_KIND } from './activity/jobs.ts'
+import { DISPATCH_KIND, DIGEST_KIND, BROADCAST_KIND } from './activity/notify/jobs.ts'
+import {
+  RETENTION_KIND as LANTERN_RETENTION,
+  ROLLUP_KIND as LANTERN_ROLLUP,
+  GROOM_KIND,
+} from './lantern/jobs.ts'
+import {
+  RETENTION_KIND as ANALYTICS_RETENTION,
+  ROLLUP_KIND as ANALYTICS_ROLLUP,
+  COHORT_KIND,
+} from './lantern/analytics/jobs.ts'
 import {
   RELAY_KIND as TESSERA_RELAY,
   WARD_MINT_KIND,
@@ -214,7 +234,7 @@ describe('the kind collisions are real', () => {
       NOTIFICATION_REAP_KIND,
       BUCKET_REAP_KIND,
       DELIVER_KIND,
-      ROLLUP_KIND,
+      DEVPLATFORM_ROLLUP,
       DEVPLATFORM_RETENTION,
       POLICY_RETENTION,
       COUNTER_PRUNE_KIND,
@@ -440,6 +460,52 @@ describe('WAVE M5b: the commerce/games tier brings six more relays and a second 
     assert.equal(relays.size, 1, 'all eleven spell it identically, so one shared runner would refuse the second')
   })
 
+  it('the M5c four register NO relay at all, which is a claim about what they are', () => {
+    // activity, notify, lantern and analytics are CONSUMERS. None has an `outbox` table and none
+    // registers `outbox.relay` — `@cloudsforge/contracts-events` registers no `activity.*`,
+    // `notify.*`, `lantern.*` or `analytics.*` topic for them to publish. Asserted rather than
+    // assumed, because "this module has no relay" is otherwise indistinguishable from "somebody
+    // forgot to register one", and the second is a queue that silently never drains.
+    const m5c = [
+      INBOX_PRUNE_KIND,
+      RECORD_PRUNE_KIND,
+      DISPATCH_KIND,
+      DIGEST_KIND,
+      BROADCAST_KIND,
+      LANTERN_RETENTION,
+      LANTERN_ROLLUP,
+      GROOM_KIND,
+      ANALYTICS_RETENTION,
+      ANALYTICS_ROLLUP,
+      COHORT_KIND,
+    ]
+    assert.ok(!m5c.includes('outbox.relay'), 'none of the M5c four publishes, so none may relay')
+  })
+
+  it('and they bring the THIRD and FOURTH exact collisions — `retention` four ways, `rollup` twice', () => {
+    // Measured, not asserted from memory. These are the two most ordinary names a background job can
+    // have, which is exactly why they collide and exactly why the `module` label is not optional.
+    const retention = [DEVPLATFORM_RETENTION, COMMUNITY_RETENTION, LANTERN_RETENTION, ANALYTICS_RETENTION]
+    assert.deepEqual(new Set(retention).size, 1, 'all four spell `retention` identically')
+    assert.equal(retention[0], 'retention')
+
+    assert.equal(LANTERN_ROLLUP, 'rollup')
+    assert.equal(ANALYTICS_ROLLUP, 'rollup')
+    assert.equal(LANTERN_ROLLUP, ANALYTICS_ROLLUP, 'a fourth exact collision, not a near-miss')
+    // devplatform's is `usage.rollup`, which is the near-miss the two above are NOT. Named here so
+    // nobody "tidies" one of them into the other's spelling on the assumption they already agree.
+    assert.equal(DEVPLATFORM_ROLLUP, 'usage.rollup')
+
+    // And the consequence, made concrete: one runner could not hold both halves of either pair.
+    const runner = new JobRunner({ queue: queue(), concurrency: 1 })
+    runner.register(LANTERN_ROLLUP, async () => {})
+    assert.throws(
+      () => runner.register(ANALYTICS_ROLLUP, async () => {}),
+      /already registered/,
+      'two modules’ rollups in one runner must be a loud refusal, not a silent replacement',
+    )
+  })
+
   it('community adds a SECOND exact collision — `retention` — that devplatform already owns', () => {
     // M5a wrote devplatform's bare `retention` down as "the widest kind name in the process, and
     // the one most likely to collide with a future module's". community is that future module: both
@@ -479,6 +545,39 @@ describe('WAVE M5b: the commerce/games tier brings six more relays and a second 
     assert.equal(new Set(own).size, own.length, `two new kinds share a value: ${own.join(', ')}`)
     assert.ok(!own.includes('outbox.relay'), 'the relay is the shared one and is counted separately')
     assert.ok(!own.includes('retention'), 'retention is the other shared one and is counted separately')
+  })
+
+  it('and the M5c four’s own kinds collide with nothing outside the two shared names', () => {
+    const own = [
+      INBOX_PRUNE_KIND,
+      RECORD_PRUNE_KIND,
+      DISPATCH_KIND,
+      DIGEST_KIND,
+      BROADCAST_KIND,
+      GROOM_KIND,
+      COHORT_KIND,
+    ]
+    assert.equal(new Set(own).size, own.length, `two M5c kinds share a value: ${own.join(', ')}`)
+    for (const shared of ['outbox.relay', 'retention', 'rollup']) {
+      assert.ok(!own.includes(shared), `${shared} is a shared name and is counted separately`)
+    }
+  })
+
+  it('and the module label keeps FOUR retentions and TWO rollups readable as separate series', () => {
+    // The same rendering argument as the relay case below, for the two kinds M5c made ambiguous.
+    // Without `module`, `jobs_failed_total{kind="retention"}` is one series summing four unrelated
+    // queues in four unrelated databases — a number that still moves and that nobody can act on.
+    const metrics = registerJobMetrics(new Metrics())
+    for (const module of ['devplatform', 'community', 'lantern', 'analytics'] as const) {
+      metrics.withLabels({ module }).increment('jobs_failed_total', { kind: 'retention' })
+    }
+    for (const module of ['lantern', 'analytics'] as const) {
+      metrics.withLabels({ module }).increment('jobs_failed_total', { kind: 'rollup' })
+    }
+    const lines = render(metrics).filter((l) => l.startsWith('jobs_failed_total{'))
+    assert.equal(lines.filter((l) => l.includes('kind="retention"')).length, 4)
+    assert.equal(lines.filter((l) => l.includes('kind="rollup"')).length, 2)
+    for (const line of lines) assert.match(line, / 1$/, 'each module counts its own, not the sum')
   })
 
   it('and the module label keeps all eleven relays readable as eleven series', () => {

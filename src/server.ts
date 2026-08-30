@@ -533,6 +533,22 @@ export const SPLIT_EVENT_PATHS: Readonly<Record<string, string>> = Object.freeze
   mint: '/v1/events/mint',
   worlds: '/v1/events/worlds',
   tessera: '/v1/events/tessera',
+  // ── WAVE M5c: THE FOUR MODULES THAT ARE NOT HERE, AND WHY THAT IS CORRECT ───────────────────
+  //
+  // activity, notify and analytics all consume the event bus, and none of them appears above.
+  // They do not serve `POST /v1/events` and never did: their inboxes are under `/ingest`, a second
+  // and entirely disjoint path family with a bare path and a 410 of its own.
+  //
+  //   `/ingest/activity`   verified against ACTIVITY_INGEST_SECRETS
+  //   `/ingest/notify`     verified against NOTIFY_INGEST_SIGNING_SECRET
+  //   `/ingest/analytics`  verified against ANALYTICS_DELIVERY_SECRETS
+  //   `POST /ingest`       410, naming those three — served by activity, in `./activity/routes.ts`
+  //
+  // The rule is therefore enforced twice over two families, for one reason: three more keys that
+  // must not decide for each other. Listing the `/ingest` paths in THIS object would be worse than
+  // leaving them out — a producer reading the 410 body of `/v1/events` would be sent at a route
+  // that verifies with a key it does not hold, and an outbox relay retries a 401 for ever.
+  // `mergedroutes.test.ts` asserts both families, and that neither leaks into the other's list.
 })
 
 /** Rewrite this module's webhook onto its own path. Everything else passes through untouched. */
