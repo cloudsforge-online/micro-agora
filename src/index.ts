@@ -1,14 +1,20 @@
 /**
- * The composition root — for ALL FIVE modules this process now serves.
+ * The composition root — for ALL TWELVE modules this process now serves.
  *
  * Everything this service is made of is built here, once, in an order that is not arbitrary. Each
  * step carries the reason it must come before the next; the ordering is the substance of the file.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════════
- * **WAVE M5a: THIS PROCESS IS FIVE MODULES.** micro-deploy `docs/service-merge-plan.md`. agora
- * absorbed devplatform, policy, pricing and studio as the seed of what becomes `platform`: one
- * image, one listener, one `/livez`, one `/readyz`, one `/metrics`, and FIVE databases that are
- * never merged and must never be reachable from each other's handlers.
+ * **WAVES M5a + M5b: THIS PROCESS IS TWELVE MODULES.** micro-deploy `docs/service-merge-plan.md`.
+ * agora absorbed devplatform, policy, pricing and studio (M5a), then community, market, billing,
+ * mint, foresight, worlds and tessera (M5b, the commerce/games tier), as the seed of what becomes
+ * `platform`: one image, one listener, one `/livez`, one `/readyz`, one `/metrics`, and TWELVE
+ * databases that are never merged and must never be reachable from each other's handlers.
+ *
+ * Six of the M5b seven hold `ledger.postEntry` authority. The owner overruled the
+ * ledger-isolation rule for the platform tier (§M5); the mitigations below are mandatory, not
+ * advisory — per-route `RouteSpec.sql`, one JobRunner per module, `{ module }` job labels, a
+ * per-module event path + inbox, and each module keeping its OWN ledger client.
  *
  * agora absorbs rather than the other way round because it is the largest surface and the only one
  * of the five that is under active build-out — the four absorbed modules are mounted, not
@@ -61,6 +67,23 @@ import { MODULE_LABEL as DEVPLATFORM_MODULE, createDevplatformModule } from './d
 import { MODULE_LABEL as POLICY_MODULE, createPolicyModule } from './policy/module.ts'
 import { MODULE_LABEL as PRICING_MODULE, createPricingModule } from './pricing/module.ts'
 import { MODULE_LABEL as STUDIO_MODULE, createStudioModule } from './studio/module.ts'
+// ── WAVE M5b: the commerce/games tier ─────────────────────────────────────────────────────────
+//
+// Six of these seven hold `ledger.postEntry` authority (community, market, billing, mint,
+// foresight, worlds) — the owner overruled the ledger-isolation rule for the platform tier
+// (micro-deploy `docs/service-merge-plan.md` §M5). The mitigations are what make that safe and they
+// are NOT optional: every module reads its OWN env and builds its OWN pool below the factory call,
+// stamps `RouteSpec.sql` over its whole table, runs its OWN JobRunner (nine of these register
+// `outbox.relay`), labels its job metrics `{ module }`, and — for the six that ingest events —
+// serves its OWN suffixed webhook path against its OWN inbox and signing secret. None of the seven
+// factories names a database handle, exactly as the M5a four do not.
+import { MODULE_LABEL as COMMUNITY_MODULE, createCommunityModule } from './community/module.ts'
+import { MODULE_LABEL as MARKET_MODULE, createMarketModule } from './market/module.ts'
+import { MODULE_LABEL as BILLING_MODULE, createBillingModule } from './billing/module.ts'
+import { MODULE_LABEL as MINT_MODULE, createMintModule } from './mint/module.ts'
+import { MODULE_LABEL as FORESIGHT_MODULE, createForesightModule } from './foresight/module.ts'
+import { MODULE_LABEL as WORLDS_MODULE, createWorldsModule } from './worlds/module.ts'
+import { MODULE_LABEL as TESSERA_MODULE, createTesseraModule } from './tessera/module.ts'
 
 // 1. Environment. Importing `./env.ts` validated it; a missing or placeholder secret has already
 //    exited with a structured line naming the variable.
@@ -293,6 +316,16 @@ const devplatform = await build(DEVPLATFORM_MODULE, () => createDevplatformModul
 const policy = await build(POLICY_MODULE, () => createPolicyModule(host))
 const pricing = await build(PRICING_MODULE, () => createPricingModule(host))
 const studio = await build(STUDIO_MODULE, () => createStudioModule(host))
+// The M5b seven, built in a fixed order so the boot log reads the same way every time. Each throws
+// on its own fault and `build` unwinds every module started so far in reverse — so a bad
+// TESSERA_DATABASE_URL closes eleven pools rather than leaking them while the container dies.
+const community = await build(COMMUNITY_MODULE, () => createCommunityModule(host))
+const market = await build(MARKET_MODULE, () => createMarketModule(host))
+const billing = await build(BILLING_MODULE, () => createBillingModule(host))
+const mint = await build(MINT_MODULE, () => createMintModule(host))
+const foresight = await build(FORESIGHT_MODULE, () => createForesightModule(host))
+const worlds = await build(WORLDS_MODULE, () => createWorldsModule(host))
+const tessera = await build(TESSERA_MODULE, () => createTesseraModule(host))
 
 // ── AND EVERY PROBE THE MOUNTED MODULES CONTRIBUTE ────────────────────────────────────────────
 //
@@ -311,7 +344,19 @@ const studio = await build(STUDIO_MODULE, () => createStudioModule(host))
 // it soft to protect the other four modules would be the failure nobody notices.
 // `merged.test.ts` takes a module's database away and asserts the endpoint says WHICH, while the
 // others still pass.
-for (const probe of [...devplatform.probes, ...policy.probes, ...pricing.probes, ...studio.probes]) {
+for (const probe of [
+  ...devplatform.probes,
+  ...policy.probes,
+  ...pricing.probes,
+  ...studio.probes,
+  ...community.probes,
+  ...market.probes,
+  ...billing.probes,
+  ...mint.probes,
+  ...foresight.probes,
+  ...worlds.probes,
+  ...tessera.probes,
+]) {
   lifecycle.addProbe(probe)
 }
 
@@ -401,12 +446,31 @@ const server = createMergedServer(
     await policy.beforeScrape()
     await pricing.beforeScrape()
     await studio.beforeScrape()
+    await community.beforeScrape()
+    await market.beforeScrape()
+    await billing.beforeScrape()
+    await mint.beforeScrape()
+    await foresight.beforeScrape()
+    await worlds.beforeScrape()
+    await tessera.beforeScrape()
   },
   },
   // ONE FLAT TABLE, in a fixed order. Order among the mounted modules decides nothing —
   // `mergedroutes.test.ts` asserts every PAIR of the five route sets overlaps on nothing at all,
   // which is what makes that true rather than merely likely.
-  [...devplatform.routes, ...policy.routes, ...pricing.routes, ...studio.routes],
+  [
+    ...devplatform.routes,
+    ...policy.routes,
+    ...pricing.routes,
+    ...studio.routes,
+    ...community.routes,
+    ...market.routes,
+    ...billing.routes,
+    ...mint.routes,
+    ...foresight.routes,
+    ...worlds.routes,
+    ...tessera.routes,
+  ],
 )
 
 // 9. The job runner, started before `listen()`. Background work is claimed under a lease, so a
@@ -466,6 +530,13 @@ await devplatform.start()
 await policy.start()
 await pricing.start()
 await studio.start()
+await community.start()
+await market.start()
+await billing.start()
+await mint.start()
+await foresight.start()
+await worlds.start()
+await tessera.start()
 
 // 10. Listen. Last of the construction steps, because a socket that accepts before its
 //     dependencies exist is a socket that answers 500.
@@ -475,7 +546,20 @@ await new Promise<void>((resolve, reject) => {
 })
 logger.info('listening', {
   port: env.port,
-  modules: [SERVICE, DEVPLATFORM_MODULE, POLICY_MODULE, PRICING_MODULE, STUDIO_MODULE],
+  modules: [
+    SERVICE,
+    DEVPLATFORM_MODULE,
+    POLICY_MODULE,
+    PRICING_MODULE,
+    STUDIO_MODULE,
+    COMMUNITY_MODULE,
+    MARKET_MODULE,
+    BILLING_MODULE,
+    MINT_MODULE,
+    FORESIGHT_MODULE,
+    WORLDS_MODULE,
+    TESSERA_MODULE,
+  ],
 })
 
 // 11. Ready. Only now does `/readyz` start answering 200 and the balancer send traffic.
@@ -499,6 +583,13 @@ lifecycle.onShutdown(() => devplatform.stop())
 lifecycle.onShutdown(() => policy.stop())
 lifecycle.onShutdown(() => pricing.stop())
 lifecycle.onShutdown(() => studio.stop())
+lifecycle.onShutdown(() => community.stop())
+lifecycle.onShutdown(() => market.stop())
+lifecycle.onShutdown(() => billing.stop())
+lifecycle.onShutdown(() => mint.stop())
+lifecycle.onShutdown(() => foresight.stop())
+lifecycle.onShutdown(() => worlds.stop())
+lifecycle.onShutdown(() => tessera.stop())
 lifecycle.onShutdown(
   () =>
     new Promise<void>((resolve) => {

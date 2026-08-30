@@ -478,7 +478,9 @@ export const EVENTS_PATH = '/v1/events'
  * The webhook path this module serves INSIDE the merged process.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════════
- * **THREE MODULES MOUNT `POST /v1/events`, AND THEY DO NOT VERIFY WITH THE SAME KEY.**
+ * **NINE MODULES MOUNT `POST /v1/events`, AND THEY DO NOT VERIFY WITH THE SAME KEY.** (Three since
+ * wave M5a — agora, devplatform, policy — plus six the commerce/games tier brought in wave M5b:
+ * community, market, billing, mint, worlds, tessera. `SPLIT_EVENT_PATHS` below is the full list.)
  *
  * agora verifies against `OUTBOX_SIGNING_SECRET`. policy verifies against `OUTBOX_ACCEPT_SECRETS`
  * falling back to `OUTBOX_SIGNING_SECRET`, and treats an EMPTY list as "cannot verify yet" — a
@@ -516,6 +518,21 @@ export const SPLIT_EVENT_PATHS: Readonly<Record<string, string>> = Object.freeze
   agora: MOUNTED_EVENTS_PATH,
   devplatform: '/v1/events/devplatform',
   policy: '/v1/events/policy',
+  // ── WAVE M5b: the commerce/games tier, six more webhooks that verify with six more keys ──────
+  //
+  // Each of these mounts `POST /v1/events` STANDALONE and verifies with a secret of its own —
+  // community with `COMMUNITY_INGEST_SECRETS`, market and mint with `OUTBOX_SIGNING_SECRET`,
+  // billing and worlds with `OUTBOX_ACCEPT_SECRETS`, and tessera with `INBOUND_SIGNING_SECRET`
+  // (held apart from its `OUTBOX_SIGNING_SECRET`). So the same argument the three above make holds
+  // six more times: verifying once and fanning out would be one key deciding for nine. Each keeps
+  // its own suffixed path and its own inbox. pricing, studio and foresight are absent on purpose —
+  // they ingest no events, so listing them would send a producer at a route that does not exist.
+  community: '/v1/events/community',
+  market: '/v1/events/market',
+  billing: '/v1/events/billing',
+  mint: '/v1/events/mint',
+  worlds: '/v1/events/worlds',
+  tessera: '/v1/events/tessera',
 })
 
 /** Rewrite this module's webhook onto its own path. Everything else passes through untouched. */
@@ -551,9 +568,8 @@ function goneEventsRoute(): RouteSpec<Db> {
           error: {
             code: 'events_path_split',
             message:
-              'this process serves three event webhooks, one per module, because they do not ' +
-              'verify with the same key. Re-point this subscription at the module that owns the ' +
-              'topic.',
+              'this process serves one event webhook per module, because they do not verify with ' +
+              'the same key. Re-point this subscription at the module that owns the topic.',
             paths: SPLIT_EVENT_PATHS,
             requestId: ctx.requestId,
           },

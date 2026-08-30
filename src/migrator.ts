@@ -19,17 +19,21 @@
  * them at boot is a service that could start without them.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════════
- * **WAVE M5a: FIVE MODULES, FIVE MIGRATION LEDGERS, AND WHY THEY CANNOT BE CONFUSED.**
+ * **WAVES M5a + M5b: TWELVE MODULES, TWELVE MIGRATION LEDGERS, AND WHY THEY CANNOT BE CONFUSED.**
  *
- * This process now migrates agora's databases, devplatform's, policy's, pricing's and studio's.
+ * This process now migrates agora's databases, devplatform's, policy's, pricing's, studio's, and
+ * the M5b seven — community's, market's, billing's, mint's, foresight's, worlds' and tessera's.
  * Every ledger is a table called `schema_migrations` — the name is a literal inside
  * `@cloudsforge/db` and takes no option — so the ONLY thing keeping agora's version 6 from being
  * read as studio's version 6 is that they are in different DATABASES. Nothing about the merge
  * changes that, and nothing may:
  *
  *   * `AGORA_DATABASE_URL`, `DEVPLATFORM_DATABASE_URL`, `POLICY_DATABASE_URL`,
- *     `PRICING_DATABASE_URL` and `STUDIO_DATABASE_URL` name different databases. `assertDistinct`
- *     below REFUSES to run if they do not, before a single statement is issued. That refusal is
+ *     `PRICING_DATABASE_URL`, `STUDIO_DATABASE_URL`, `COMMUNITY_DATABASE_URL`,
+ *     `MARKET_DATABASE_URL`, `BILLING_DATABASE_URL`, `MINT_DATABASE_URL`,
+ *     `FORESIGHT_DATABASE_URL`, `WORLDS_DATABASE_URL` and `TESSERA_DATABASE_URL` name different
+ *     databases. `assertDistinct` below REFUSES to run if they do not, before a single statement is
+ *     issued. That refusal is
  *     cheap and the alternative is not: `inbox` and `jobs` exist in ALL FIVE schemas, and
  *     `outbox`, `event_subscriptions` and `outbox_deliveries` in four of them. One shared database
  *     is two `create table inbox` racing, and then — because the ledger would already record the
@@ -65,6 +69,15 @@ import { devplatformMigrationTargets } from './devplatform/module.ts'
 import { policyMigrationTargets } from './policy/module.ts'
 import { pricingMigrationTargets } from './pricing/module.ts'
 import { studioMigrationTargets } from './studio/module.ts'
+// The M5b seven, each naming its OWN databases through a function that returns scalars — so this
+// file never comes into possession of a DSN it has no other reason to hold.
+import { communityMigrationTargets } from './community/module.ts'
+import { marketMigrationTargets } from './market/module.ts'
+import { billingMigrationTargets } from './billing/module.ts'
+import { mintMigrationTargets } from './mint/module.ts'
+import { foresightMigrationTargets } from './foresight/module.ts'
+import { worldsMigrationTargets } from './worlds/module.ts'
+import { tesseraMigrationTargets } from './tessera/module.ts'
 import { assertDistinct, type Target } from './migratortargets.ts'
 
 const log = new Logger({
@@ -105,6 +118,13 @@ const targets: readonly Target[] = [
   ...policyMigrationTargets(),
   ...pricingMigrationTargets(),
   ...studioMigrationTargets(),
+  ...communityMigrationTargets(),
+  ...marketMigrationTargets(),
+  ...billingMigrationTargets(),
+  ...mintMigrationTargets(),
+  ...foresightMigrationTargets(),
+  ...worldsMigrationTargets(),
+  ...tesseraMigrationTargets(),
 ]
 
 // BEFORE ANY STATEMENT. Two modules pointed at one database is not a migration that fails halfway;

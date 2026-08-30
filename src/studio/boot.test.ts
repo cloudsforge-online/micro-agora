@@ -43,13 +43,22 @@ import {
 } from '../devplatform/testsupport.ts'
 import { migrateTestDb as migratePolicyDb, openDb as openPolicyDb } from '../policy/testsupport.ts'
 import { migrateTestDb as migratePricingDb, openDb as openPricingDb } from '../pricing/testsupport.ts'
+// Wave M5b's seven. Same shape: each opens its OWN database from its OWN `_TEST_`
+// variable and applies its OWN migrations — the merged boot asserts all twelve.
+import { migrateTestDb as migrateCommunityDb, openDb as openCommunityDb } from '../community/testsupport.ts'
+import { migrateTestDb as migrateMarketDb, openDb as openMarketDb } from '../market/testsupport.ts'
+import { migrateTestDb as migrateBillingDb, openDb as openBillingDb } from '../billing/testsupport.ts'
+import { migrateTestDb as migrateMintDb, openDb as openMintDb } from '../mint/testsupport.ts'
+import { migrateTestDb as migrateForesightDb, openDb as openForesightDb } from '../foresight/testsupport.ts'
+import { migrateTestDb as migrateWorldsDb, openDb as openWorldsDb } from '../worlds/testsupport.ts'
+import { migrateTestDb as migrateTesseraDb, openDb as openTesseraDb } from '../tessera/testsupport.ts'
 
 /*
  * ── WAVE M5a: THIS BOOTS THE MERGED PROCESS, NOT THIS MODULE ──────────────────────────────────
  *
  * micro-deploy `docs/service-merge-plan.md`. There is no `index.ts` in this directory any more:
  * this service's composition root became `./module.ts`, and the process that runs it is
- * `../index.ts`, which builds five modules on one listener.
+ * `../index.ts`, which builds twelve modules on one listener.
  *
  * REPOINTED RATHER THAN DROPPED, and it is a stronger test than it was. What it exists to prove is
  * that the asset-root check and probe are WIRED — `server.test.ts` proves the probe works when it
@@ -58,8 +67,8 @@ import { migrateTestDb as migratePricingDb, openDb as openPricingDb } from '../p
  * registers it in a loop), so there is strictly more to lose and this is still the only thing
  * watching it.
  *
- * It also became the only test anywhere that boots all five modules against five real databases,
- * which is why it now needs all five DSNs — see `skip` below.
+ * It also became the only test anywhere that boots all twelve modules against twelve real databases,
+ * which is why it now needs all twelve DSNs — see `skip` below.
  */
 const here = dirname(fileURLToPath(import.meta.url))
 const entrypoint = join(here, '..', 'index.ts')
@@ -69,7 +78,7 @@ const entrypoint = join(here, '..', 'index.ts')
  *
  * `../index.ts` calls `assertSchemaAtLeast` for each module before it listens, so a missing DSN is
  * an `exit(1)` with a message about a schema — the precise shape of a check that graded an early
- * return rather than the thing it named. All five or nothing.
+ * return rather than the thing it named. All twelve or nothing.
  *
  * The names are the `_TEST_` spellings `service-ci.yml` exports, one CI database per declared
  * `database-env-var` entry.
@@ -80,6 +89,17 @@ const MERGED_TEST_DSNS = {
   POLICY_DATABASE_URL: 'POLICY_TEST_DATABASE_URL',
   PRICING_DATABASE_URL: 'PRICING_TEST_DATABASE_URL',
   STUDIO_DATABASE_URL: 'STUDIO_TEST_DATABASE_URL',
+  // Wave M5b added the commerce/games tier. `../index.ts` asserts EVERY module's
+  // schema before it listens, so this boot must carry all twelve DSNs or the
+  // merged process exits 1 on the first missing one — which is why the five
+  // studio boot tests fail with only the M5a five here.
+  COMMUNITY_DATABASE_URL: 'COMMUNITY_TEST_DATABASE_URL',
+  MARKET_DATABASE_URL: 'MARKET_TEST_DATABASE_URL',
+  BILLING_DATABASE_URL: 'BILLING_TEST_DATABASE_URL',
+  MINT_DATABASE_URL: 'MINT_TEST_DATABASE_URL',
+  FORESIGHT_DATABASE_URL: 'FORESIGHT_TEST_DATABASE_URL',
+  WORLDS_DATABASE_URL: 'WORLDS_TEST_DATABASE_URL',
+  TESSERA_DATABASE_URL: 'TESSERA_TEST_DATABASE_URL',
 } as const
 
 const missingDsn = Object.values(MERGED_TEST_DSNS).filter((name) => {
@@ -96,7 +116,7 @@ const missingDsn = Object.values(MERGED_TEST_DSNS).filter((name) => {
  * somebody to fix a thing that was never broken. It names every missing one.
  *
  * `service-ci.yml`'s skip scan reads this line: a message naming variables THIS job exported is
- * fatal, which is what it must be, because all five are declared in `database-env-var`.
+ * fatal, which is what it must be, because all twelve are declared in `database-env-var`.
  */
 const mergedSkip = missingDsn.length === 0 ? false : `set ${missingDsn.join(', ')}`
 
@@ -136,6 +156,32 @@ function spawnService(
       // the literal that used to sit here reads as a placeholder and is now refused
       // (micro-org #142).
       OUTBOX_SIGNING_SECRET: randomBytes(48).toString('base64'),
+      // ── WAVE M5b: the seven commerce/games modules each boot-validate their OWN env ──────────
+      //
+      // `../index.ts` now builds TWELVE modules and every one asserts its own configuration at
+      // import (`env.ts`) before the process can listen. These are the boot-REQUIRED variables the
+      // seven new modules add on top of the estate-wide keys above. The upstream URLs point at
+      // loopback DEAD ports — the boot must not depend on a peer, and nothing in a boot dials one —
+      // and the two module secrets are GENERATED per run for the same micro-org #142 reason as the
+      // two above. `POLICY_URL` (market, foresight) is already set above. `FORESIGHT_ORACLE_*` take
+      // the plain shapes the migrator's own CI job proved (`ci` / `ci-oracle`).
+      LEDGER_URL: 'http://127.0.0.1:4102',
+      LEDGER_BASE_URL: 'http://127.0.0.1:4103',
+      POLICY_BASE_URL: 'http://127.0.0.1:4104',
+      INDEXER_URL: 'http://127.0.0.1:4105',
+      CUSTODY_URL: 'http://127.0.0.1:4106',
+      PRICING_URL: 'http://127.0.0.1:4107',
+      BILLING_URL: 'http://127.0.0.1:4108',
+      BILLING_LEDGER_URL: 'http://127.0.0.1:4109',
+      BILLING_PRICING_URL: 'http://127.0.0.1:4110',
+      COMMUNITY_INGEST_SECRETS: randomBytes(48).toString('base64'),
+      INBOUND_SIGNING_SECRET: randomBytes(48).toString('base64'),
+      // foresight requires two on-chain addresses (its `address()` validator, not `required()`);
+      // the zero-ish placeholders the migrator's CI job proved the validator accepts.
+      FORESIGHT_TREASURY_ADDRESS: '0x0000000000000000000000000000000000000001',
+      FORESIGHT_ORACLE_ADDRESS: '0x0000000000000000000000000000000000000002',
+      FORESIGHT_ORACLE_USER_ID: 'ci',
+      FORESIGHT_ORACLE_ORDER_ID: 'ci-oracle',
       LOG_LEVEL: 'info',
       // No Foundry credential: booting must never depend on a spend credential, and a boot test
       // that could spend money is a boot test nobody runs.
@@ -257,7 +303,7 @@ function migratedSchema(): Promise<void> {
     // FIVE schemas, because the merged process asserts five before it listens. Each module's own
     // `migrateTestDb` runs that module's own `MIGRATIONS` against that module's own DSN — never a
     // shared handle, for the reason `../migratortargets.ts` refuses at runtime: `inbox` and `jobs`
-    // exist in all five, so one shared database is two `create table inbox` racing and the later
+    // exist in all twelve, so one shared database is two `create table inbox` racing and the later
     // modules' tables never created, with a green migrator.
     const modules: ReadonlyArray<readonly [string, () => postgres.Sql, (sql: postgres.Sql) => Promise<void>]> = [
       ['agora', openAgoraDb, migrateAgoraDb],
@@ -265,6 +311,13 @@ function migratedSchema(): Promise<void> {
       ['policy', openPolicyDb, migratePolicyDb],
       ['pricing', openPricingDb, migratePricingDb],
       ['studio', openDb, migrateTestDb],
+      ['community', openCommunityDb, migrateCommunityDb],
+      ['market', openMarketDb, migrateMarketDb],
+      ['billing', openBillingDb, migrateBillingDb],
+      ['mint', openMintDb, migrateMintDb],
+      ['foresight', openForesightDb, migrateForesightDb],
+      ['worlds', openWorldsDb, migrateWorldsDb],
+      ['tessera', openTesseraDb, migrateTesseraDb],
     ]
     for (const [name, open, migrate] of modules) {
       const sql = open()
