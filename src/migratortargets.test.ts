@@ -51,6 +51,13 @@ import { MIGRATIONS as MINT_MIGRATIONS, TABLES as MINT_TABLES } from './mint/mig
 import { MIGRATIONS as FORESIGHT_MIGRATIONS, TABLES as FORESIGHT_TABLES } from './foresight/migrations.ts'
 import { MIGRATIONS as WORLDS_MIGRATIONS, TABLES as WORLDS_TABLES } from './worlds/migrations.ts'
 import { MIGRATIONS as TESSERA_MIGRATIONS, TABLES as TESSERA_TABLES } from './tessera/migrations.ts'
+// Wave M5c's four. activity and lantern each brought a nested module, so four ledgers arrive on
+// two factory calls — and every one of them owns an `inbox` and a `jobs`, which is what makes the
+// matrix below the argument for `RouteSpec.sql` rather than a curiosity.
+import { MIGRATIONS as ACTIVITY_MIGRATIONS, TABLES as ACTIVITY_TABLES } from './activity/migrations.ts'
+import { MIGRATIONS as NOTIFY_MIGRATIONS, ALL_TABLES as NOTIFY_TABLES } from './activity/notify/migrations.ts'
+import { MIGRATIONS as LANTERN_MIGRATIONS, TABLES as LANTERN_TABLES } from './lantern/migrations.ts'
+import { MIGRATIONS as ANALYTICS_MIGRATIONS, TABLES as ANALYTICS_TABLES } from './lantern/analytics/migrations.ts'
 
 /** A DSN assembled rather than written, so this file holds no string shaped like a credential. */
 function dsn(host: string, port: number | '', database: string): string {
@@ -210,9 +217,13 @@ const LEDGERS = [
   ['foresight', FORESIGHT_MIGRATIONS, FORESIGHT_TABLES],
   ['worlds', WORLDS_MIGRATIONS, WORLDS_TABLES],
   ['tessera', TESSERA_MIGRATIONS, TESSERA_TABLES],
+  ['activity', ACTIVITY_MIGRATIONS, ACTIVITY_TABLES],
+  ['notify', NOTIFY_MIGRATIONS, NOTIFY_TABLES],
+  ['lantern', LANTERN_MIGRATIONS, LANTERN_TABLES],
+  ['analytics', ANALYTICS_MIGRATIONS, ANALYTICS_TABLES],
 ] as const
 
-describe('the twelve ledgers cannot interfere even once the databases are right', () => {
+describe('the sixteen ledgers cannot interfere even once the databases are right', () => {
   it('every module takes a different advisory lock', () => {
     // Distinct locks are only SAFE because the databases are distinct — see `assertDistinct`. They
     // are asserted here because equal ones would be the other failure: one module's migration
@@ -259,10 +270,15 @@ describe('the twelve ledgers cannot interfere even once the databases are right'
         'foresight:13',
         'worlds:11',
         'tessera:15',
+        'activity:4',
+        'notify:10',
+        'lantern:5',
+        'analytics:9',
       ],
       'the migration counts changed. That is ordinary; update the list. It is pinned so that an ' +
-        'import resolving to the WRONG module — twelve near-identical file names, eleven of them one ' +
-        'directory apart — is a red test rather than a matrix computed twice over one schema.',
+        'import resolving to the WRONG module — sixteen near-identical file names, and two of them ' +
+        'now TWO directories apart — is a red test rather than a matrix computed twice over one ' +
+        'schema.',
     )
   })
 
@@ -314,6 +330,12 @@ describe('the twelve ledgers cannot interfere even once the databases are right'
       foresight: ['jobs', 'stake_assets'],
       worlds: ['jobs'],
       tessera: ['jobs', 'platform_terms'],
+      // Wave M5c. activity, lantern and analytics append `jobs` in their own testsupport; notify
+      // is the one module of the four whose `ALL_TABLES` lists it, so its entry is empty.
+      activity: ['jobs'],
+      notify: [],
+      lantern: ['jobs'],
+      analytics: ['jobs'],
     }
     for (const [name, migrations, tables] of LEDGERS) {
       const created = createdTables(migrations)
@@ -337,7 +359,7 @@ describe('the twelve ledgers cannot interfere even once the databases are right'
     }
   })
 
-  it('THE MATRIX: `inbox` and `jobs` exist in ALL TWELVE schemas, and the outbox family in eleven', () => {
+  it('THE MATRIX: `jobs` exists in ALL SIXTEEN schemas, `inbox` in fifteen, the outbox family in eleven', () => {
     /*
      * ════════════════════════════════════════════════════════════════════════════════════════
      * THE FULL FIVE-WAY MATRIX, COMPUTED. This is the reason `RouteSpec.sql` exists.
@@ -377,10 +399,21 @@ describe('the twelve ledgers cannot interfere even once the databases are right'
       .sort()
     assert.deepEqual(
       byAll,
-      ['inbox', 'jobs'],
-      'the measured five-way overlap changed. These have the SAME columns in every module, so a ' +
-        'handler handed the wrong handle writes a row that is valid and wrong.',
+      ['jobs'],
+      'the measured sixteen-way overlap changed. `jobs` has the SAME columns in every module — it ' +
+        'is `@cloudsforge/jobs`\' own schema, copied verbatim — so a handler handed the wrong ' +
+        'handle enqueues a row that is valid, is never claimed by any runner watching that kind, ' +
+        'and is never found.',
     )
+
+    // `inbox` is fifteen of the sixteen, and the exception is worth naming: lantern is the only
+    // module here that consumes NOTHING from the event bus. Its input is OTLP over HTTP and a
+    // browser beacon, neither of which is a delivery with an event id to dedupe. So a lantern
+    // handler handed another module's handle cannot silently dedupe somebody's erasure — it is the
+    // one module in the process where that particular failure is unspellable.
+    const inboxOwners = (owners.get('inbox') ?? []).slice().sort()
+    assert.equal(inboxOwners.length, LEDGERS.length - 1, `inbox is owned by ${inboxOwners.join(', ')}`)
+    assert.ok(!inboxOwners.includes('lantern'), 'lantern consumes no events, so it has no inbox')
 
     const shared = [...owners.entries()]
       .filter(([, names]) => names.length > 1)
@@ -389,11 +422,26 @@ describe('the twelve ledgers cannot interfere even once the databases are right'
     assert.deepEqual(shared, [
       'engagement_grants: market, tessera',
       'entitlements: billing, tessera',
+      // ── WAVE M5c'S SHARPEST PAIR ───────────────────────────────────────────────────────────
+      //
+      // Two modules own a table called `events`, and their columns are DIFFERENT: lantern's is a
+      // log line, analytics' is a product event carrying a pseudonymised subject and a properties
+      // document. `event_rollups` is the same story one level up. A handler handed the wrong handle
+      // does not get a clean 500 from a column that is not there — it reads rows of the wrong shape
+      // for `events`, and for `event_rollups` rows of a PLAUSIBLE one. Which is why lantern's table
+      // is stamped with `RouteSpec.sql` too, and not only analytics'.
+      'event_rollups: analytics, lantern',
       'event_subscriptions: agora, billing, community, devplatform, foresight, market, mint, pricing, studio, tessera, worlds',
-      'idempotency_keys: billing, community, devplatform, foresight, market',
-      'inbox: agora, billing, community, devplatform, foresight, market, mint, policy, pricing, studio, tessera, worlds',
-      'jobs: agora, billing, community, devplatform, foresight, market, mint, policy, pricing, studio, tessera, worlds',
+      'events: analytics, lantern',
+      'idempotency_keys: analytics, billing, community, devplatform, foresight, market',
+      'inbox: activity, agora, analytics, billing, community, devplatform, foresight, market, mint, notify, policy, pricing, studio, tessera, worlds',
+      'jobs: activity, agora, analytics, billing, community, devplatform, foresight, lantern, market, mint, notify, policy, pricing, studio, tessera, worlds',
       'listings: market, tessera',
+      // The other M5c pair worth reading twice. agora's `notifications` is the square's in-app
+      // notification; notify's is the estate-wide one that becomes an email. Both are rows about
+      // telling somebody something, and a merged process is exactly where somebody would assume
+      // they are the same table.
+      'notifications: agora, notify',
       'outbox: agora, billing, community, devplatform, foresight, market, mint, pricing, studio, tessera, worlds',
       'outbox_deliveries: agora, billing, community, devplatform, foresight, market, mint, pricing, studio, tessera, worlds',
       'provisions: tessera, worlds',
@@ -431,6 +479,13 @@ describe('the twelve ledgers cannot interfere even once the databases are right'
       foresight: 'house_seeds',
       worlds: 'player_profiles',
       tessera: 'beacons',
+      // Wave M5c. `subject_keys` is chosen deliberately for analytics: it is the table the pepper
+      // derives into, so a route handed lantern's handle 500s on the one read where a silent wrong
+      // answer would be a privacy failure rather than a display bug.
+      activity: 'activity_records',
+      notify: 'deliveries',
+      lantern: 'rum_samples',
+      analytics: 'subject_keys',
     } as const
     for (const [owner, table] of Object.entries(witnesses) as ReadonlyArray<[string, string]>) {
       assert.ok(sets.get(owner)?.has(table), `${owner} no longer owns ${table}`)

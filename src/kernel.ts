@@ -128,6 +128,19 @@ export interface RouteSpec<TSql = Sql> {
   readonly path: string
   readonly handle: (ctx: RequestContext<TSql>) => Promise<Reply>
   /**
+   * This spec answers only when NOTHING else matched, and it is never matched by path.
+   *
+   * The 404 is not plumbing in this estate: an unknown `/ingest/*` path has to be answered where a
+   * browser can read it, and which paths exist is a property of the routes that were mounted, not
+   * of the kernel. So the module owning the routes owns the miss too. `method` and `path` on a
+   * fallback are labels only — `path` is what the metrics call an unmatched request.
+   *
+   * The FIRST fallback in the list wins; mount exactly one. lantern's is the only one in this
+   * process and `mergedroutes.test.ts` pins that, because a second one would be dead and a dead
+   * fallback looks exactly like a live one.
+   */
+  readonly fallback?: true
+  /**
    * The per-network SELECTOR this route's `ctx.sql` is resolved from.
    *
    * ════════════════════════════════════════════════════════════════════════════════════════════
@@ -203,13 +216,31 @@ export interface MountDeps {
  * metrics. A route module supplies specs and never sees any of it.
  */
 export function mountRoutes<TSql>(specs: readonly RouteSpec<TSql>[], deps: MountDeps): Server {
-  const routes: Route<TSql>[] = specs.map((spec) => ({
-    method: spec.method,
-    path: spec.path,
-    pattern: compile(spec.path),
-    handle: spec.handle,
-    ...(spec.sql ? { sql: spec.sql } : {}),
-  }))
+  const routes: Route<TSql>[] = []
+  // ── THE ONE FALLBACK, TAKEN OUT OF THE MATCHING TABLE ────────────────────────────────────────
+  //
+  // Wave M5c. A fallback is never matched BY PATH — it is what answers when nothing else did — so
+  // it must not sit in the loop below, where its `path` (`unmatched`, which compiles to a literal)
+  // would be tried against every request like any other route.
+  //
+  // FIRST wins, and exactly one module declares one: lantern's, which turns an unknown `/ingest/*`
+  // from an allowlisted browser origin into a CORS-readable 404 naming the paths that do exist. Its
+  // last line is byte for byte `answer`'s bare 404 below, so mounting it changes nothing for the
+  // other fifteen modules — `mergedroutes.test.ts` asserts both halves of that.
+  let fallback: RouteSpec<TSql> | undefined
+  for (const spec of specs) {
+    if (spec.fallback) {
+      fallback ??= spec
+      continue
+    }
+    routes.push({
+      method: spec.method,
+      path: spec.path,
+      pattern: compile(spec.path),
+      handle: spec.handle,
+      ...(spec.sql ? { sql: spec.sql } : {}),
+    })
+  }
   let inFlight = 0
 
   return createHttpServer((req, res) => {
@@ -322,7 +353,7 @@ export function mountRoutes<TSql>(specs: readonly RouteSpec<TSql>[], deps: Mount
       finish(500, network)
       return
     }
-    void answer(matched, { req, url, requestId, log, params, network, sql })
+    void answer(matched ?? fallback, { req, url, requestId, log, params, network, sql })
       .then((reply) => {
         send(res, reply, requestId)
         finish(reply.status, network)
@@ -354,19 +385,70 @@ async function answer<TSql>(
   return await route.handle(ctx)
 }
 
+/**
+ * Make a refusal on a browser-facing path READABLE BY THE BROWSER.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * A 4xx with no `access-control-allow-origin` is not a 4xx as far as the page is concerned. The
+ * fetch rejects with a bare `TypeError: Failed to fetch` and the status, the code and the message
+ * are all unreadable — indistinguishable from the host being down. So EVERY refusal on this
+ * surface has to carry the headers, not just the happy path and not just the 404.
+ *
+ * This was found by driving a real Chrome at it (wave M1a). An earlier version of that change
+ * returned a carefully worded 400 explaining the payload mismatch, and the browser could not read
+ * one byte of it: `curl` showed the explanation, Chrome showed `Failed to fetch`. A fix for an
+ * invisible failure that is itself invisible is not a fix.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * Gated on the origin allowlist, so this explains things to a misconfigured frontend without
+ * describing the surface to anyone else. Only lantern's routes reach for it; it lives here rather
+ * than in `./lantern/routes.ts` because `corsReply` and `send`'s header merge are one contract.
+ */
+export function readableByBrowser<TSql>(
+  reply: Reply,
+  ctx: RequestContext<TSql>,
+  deps: { readonly rumOrigins: readonly string[] },
+): Reply {
+  if (!ctx.url.pathname.startsWith('/ingest/')) return reply
+  const origin = headerOf(ctx.req, 'origin')
+  if (!origin || !deps.rumOrigins.includes(origin)) return reply
+  return corsReply(reply, origin)
+}
+
 export function errorReply(status: number, code: string, message: string, requestId: string): Reply {
   return { status, body: { error: { code, message, requestId } } }
 }
 
+export function corsReply(reply: Reply, origin: string): Reply {
+  return {
+    ...reply,
+    headers: {
+      'access-control-allow-origin': origin,
+      'access-control-allow-methods': 'POST, OPTIONS',
+      'access-control-allow-headers': 'content-type',
+      'access-control-max-age': '600',
+      vary: 'origin',
+    },
+  }
+}
+
 export function send(res: ServerResponse, reply: Reply, requestId: string): void {
   if (res.writableEnded) return
-  const payload = reply.text ?? `${JSON.stringify(reply.body ?? {})}\n`
+  // A reply with NEITHER `text` nor `body` is an empty one — a 204 preflight, and nothing else in
+  // this process. `JSON.stringify(undefined ?? {})` would have written `{}` into it, which is a
+  // body on a status that forbids one. Wave M5c; `reply.body === null` still renders as `null`,
+  // because that is a value somebody chose.
+  const hasBody = reply.text !== undefined || reply.body !== undefined
+  const payload = reply.text ?? (hasBody ? `${JSON.stringify(reply.body)}\n` : '')
   res.writeHead(reply.status, {
-    ...(reply.headers ?? {}),
     'content-type': reply.contentType ?? 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(payload),
     'x-request-id': requestId,
     'cache-control': 'no-store',
+    // LAST, so a route that names one of the four above wins. `corsReply` names none of them; the
+    // rate limiter's `retry-after` and the 410s' bodies are unaffected either way. Ordering it this
+    // way is what lets a browser-facing reply carry a `vary` this function did not think of.
+    ...(reply.headers ?? {}),
   })
   res.end(payload)
 }

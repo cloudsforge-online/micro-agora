@@ -41,12 +41,23 @@ jobs:
       # `_TESTNET` names are deliberately NOT here: the workflow's suffix check demands
       # `%_DATABASE_URL` and would fail the build on `AGORA_DATABASE_URL_TESTNET`. Nothing is lost
       # — no suite reads a testnet DSN.
-      # Wave M5b added the commerce/games tier — seven more databases, none merged. Twelve now.
+      # Wave M5b added the commerce/games tier — seven more databases, none merged. Twelve then.
+      #
+      # Wave M5c added FOUR more on TWO absorbed repositories: activity brought notify (merged into
+      # it in wave M2) and lantern brought analytics (wave M1b), and both nestings are preserved
+      # rather than flattened. Sixteen databases now, and the last two names below are the ones
+      # nobody would think to declare — they belong to modules that are two directories deep.
+      #
+      # `src/suitecomposition.test.ts` reads THIS LIST against the sixteen `testsupport.ts` files and
+      # fails if a module has a harness and no database here, because that module's suites would
+      # skip and the skip scan would file it as a tier standing down.
       database-env-var: >-
         AGORA_DATABASE_URL DEVPLATFORM_DATABASE_URL POLICY_DATABASE_URL
         PRICING_DATABASE_URL STUDIO_DATABASE_URL COMMUNITY_DATABASE_URL
         MARKET_DATABASE_URL BILLING_DATABASE_URL MINT_DATABASE_URL
         FORESIGHT_DATABASE_URL WORLDS_DATABASE_URL TESSERA_DATABASE_URL
+        ACTIVITY_DATABASE_URL NOTIFY_DATABASE_URL LANTERN_DATABASE_URL
+        ANALYTICS_DATABASE_URL
       # The port the IMAGE binds, which is what the smoke test probes — `src/env.ts` defaults PORT
       # to 4150 and nothing below sets it. The estate overrides PORT to 4000 like every other
       # service and maps 127.0.0.1:4150 to it; that is a deployment fact and not this one.
@@ -94,6 +105,22 @@ jobs:
       # now refuses to BOOT on an unwritable root, so without this line the smoke test would fail
       # with the check working.
       #
+      # ── WHAT WAVE M5c ADDED: SEVEN LINES, SIX OF THEM KEY MATERIAL ──────────────────────────
+      #
+      # Every one is REQUIRED at import by one of the four modules M5c brought in — their `env.ts`
+      # files call `process.exit(1)` on an incomplete configuration, so the container would exit
+      # before serving /livez without them. Six are `@generate` because `@cloudsforge/secrets`
+      # refuses a value that is not SHAPED like a generated one, and has no CI exemption on purpose.
+      #
+      # `ANALYTICS_PSEUDONYM_KEY` is the one to read twice. In the estate it is a GDPR-sensitive
+      # derivation key that CANNOT be rotated without orphaning every subject key derived under it,
+      # so there is no remediation for a leak. A fresh one per run is harmless here and ONLY here,
+      # because the database it derives into is created and destroyed with the job. It must never
+      # become a literal in this file.
+      #
+      # `NOTIFY_PUBLIC_URL` is the one non-secret: notify builds the link in a notification from it,
+      # and the smoke test never sends one.
+      #
       # EVERY LINE IN THIS BLOCK BECOMES ONE `-e` ARGUMENT, so a comment inside it is passed to
       # `docker run` as an environment variable named `#`. The commentary lives out here.
       # ── WHAT WAVE M5b ADDED: THE COMMERCE/GAMES TIER'S DECLARED CONFIGURATION ────────────────
@@ -135,6 +162,13 @@ jobs:
         FORESIGHT_ORACLE_ADDRESS=0x0000000000000000000000000000000000000002
         FORESIGHT_ORACLE_USER_ID=ci
         FORESIGHT_ORACLE_ORDER_ID=ci-oracle
+        ACTIVITY_INGEST_SECRETS=@generate
+        NOTIFY_INGEST_SIGNING_SECRET=@generate
+        NOTIFY_PUBLIC_URL=http://127.0.0.1:4000
+        LANTERN_TOKEN=@generate
+        ANALYTICS_TOKEN=@generate
+        ANALYTICS_PSEUDONYM_KEY=@generate
+        ANALYTICS_DELIVERY_SECRETS=@generate
     secrets:
       # @cloudsforge/* resolves by link:../runtime and link:../contracts, so CI checks out
       # micro-runtime and micro-contracts as siblings — both private, so the workflow needs a
@@ -156,9 +190,15 @@ jobs:
     # cannot: the migrator run AS a deploy runs it, on EMPTY databases, and run TWICE to prove it is
     # idempotent — because a deploy re-runs the one-shot Job on every release.
     #
-    # Wave M5a made it five databases. Four of them are created below rather than by the service
-    # container, which can only make one.
-    name: The migrator, on twelve empty databases
+    # Wave M5a made it five databases, M5b twelve, M5c SIXTEEN. Fifteen of them are created below
+    # rather than by the service container, which can only make one.
+    #
+    # `src/migrator.ts` imports every module's `module.ts`, and each of those imports its `env.ts`,
+    # which VALIDATES AT IMPORT. So this job's `env:` block is the authority on what the migrator
+    # needs — not just the sixteen DSNs but every upstream URL and scalar those sixteen
+    # configurations demand. A missing one is an `exit(1)` before a single statement is issued,
+    # naming a variable that has nothing to do with migrations.
+    name: The migrator, on sixteen empty databases
     runs-on: ubuntu-latest
     # `contents: read`, declared, so the default GITHUB_TOKEN can read the public sibling repos when
     # the fallback below reaches for it. The reusable `ci` job declares the same at its call site.
@@ -199,6 +239,14 @@ jobs:
       FORESIGHT_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/foresight_test
       WORLDS_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/worlds_test
       TESSERA_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/tessera_test
+      # The M5c four. activity and lantern each brought a nested module, so four databases arrive on
+      # two absorbed repositories — and `src/migrator.ts` reaches them through
+      # `activityMigrationTargets()` and `lanternMigrationTargets()`, each of which includes its
+      # nested module's. The nesting is preserved in the migrator exactly as it is in the process.
+      ACTIVITY_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/activity_test
+      NOTIFY_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/notify_test
+      LANTERN_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/lantern_test
+      ANALYTICS_DATABASE_URL: postgres://agora:agora@127.0.0.1:5432/analytics_test
       IDENTITY_JWKS_URL: http://127.0.0.1:4001/.well-known/jwks.json
       IDENTITY_ISSUER: http://127.0.0.1:4001
       # The M5b modules' env.ts validates at import, and `src/migrator.ts` imports every module.ts
@@ -222,9 +270,17 @@ jobs:
       FORESIGHT_ORACLE_ADDRESS: '0x0000000000000000000000000000000000000002'
       FORESIGHT_ORACLE_USER_ID: ci
       FORESIGHT_ORACLE_ORDER_ID: ci-oracle
+      # notify's `env.ts` REQUIRES this — it is the origin every notification link is built from —
+      # and `src/migrator.ts` imports every module's `module.ts`, which imports its `env.ts`. So
+      # without it this job exits 1 before touching a schema, naming a variable that has nothing to
+      # do with migrations. A CI-only non-secret, never dialled: the migrator opens pools and makes
+      # no outbound call.
+      NOTIFY_PUBLIC_URL: http://127.0.0.1:4111
       # OUTBOX_SIGNING_SECRET, DEVPLATFORM_INGEST_SECRETS, COMMUNITY_INGEST_SECRETS,
       # INBOUND_SIGNING_SECRET and COMMUNITY_IDENTITY_CREDENTIAL are deliberately NOT here — they are
       # generated per run in the first step below, because @cloudsforge/secrets refuses a literal.
+      # Wave M5c adds six more to that step: ACTIVITY_INGEST_SECRETS, NOTIFY_INGEST_SIGNING_SECRET,
+      # LANTERN_TOKEN, ANALYTICS_TOKEN, ANALYTICS_PSEUDONYM_KEY and ANALYTICS_DELIVERY_SECRETS.
     steps:
       # THE KEY MATERIAL IS GENERATED, not written into the mapping above.
       #
@@ -242,7 +298,13 @@ jobs:
           # Wave M5b: community's own ingest list and tessera's inbound-webhook key join the two the
           # M5a modules need. Each module's env.ts runs @cloudsforge/secrets at import and refuses a
           # value not shaped like a generated one — so a real one is minted per run and thrown away.
-          for name in OUTBOX_SIGNING_SECRET DEVPLATFORM_INGEST_SECRETS COMMUNITY_INGEST_SECRETS INBOUND_SIGNING_SECRET; do
+          # Wave M5c: activity's and notify's ingest accept-lists, lantern's and analytics' static
+          # read tokens, analytics' delivery accept-list, and analytics' PEPPER. The pepper is the
+          # one value in this estate that cannot be rotated without orphaning the history derived
+          # under it — minted per run and thrown away here, and never a literal anywhere.
+          for name in OUTBOX_SIGNING_SECRET DEVPLATFORM_INGEST_SECRETS COMMUNITY_INGEST_SECRETS INBOUND_SIGNING_SECRET \
+                      ACTIVITY_INGEST_SECRETS NOTIFY_INGEST_SIGNING_SECRET LANTERN_TOKEN ANALYTICS_TOKEN \
+                      ANALYTICS_PSEUDONYM_KEY ANALYTICS_DELIVERY_SECRETS; do
             secret="$(openssl rand -base64 48)"
             echo "::add-mask::$secret"
             echo "${name}=${secret}" >> "$GITHUB_ENV"
@@ -291,11 +353,12 @@ jobs:
         run: |
           set -euo pipefail
           for db in devplatform_test policy_test pricing_test studio_test \
-                    community_test market_test billing_test mint_test foresight_test worlds_test tessera_test; do
+                    community_test market_test billing_test mint_test foresight_test worlds_test tessera_test \
+                    activity_test notify_test lantern_test analytics_test; do
             PGPASSWORD=agora psql -h 127.0.0.1 -U agora -d agora_test -v ON_ERROR_STOP=1 \
               -c "create database ${db}"
           done
-      - name: Migrate all twelve test databases
+      - name: Migrate all sixteen test databases
         working-directory: agora
         run: pnpm migrate
       - name: Migrating twice is a no-op
@@ -303,7 +366,7 @@ jobs:
         # A deploy re-runs the one-shot job on every release; a migrator that is not idempotent turns
         # the second deploy of an unchanged schema into an outage.
         run: pnpm migrate
-      - name: All twelve schemas are actually there, and each in its OWN database
+      - name: All sixteen schemas are actually there, and each in its OWN database
         # The failure this whole arrangement exists to prevent is a migrator that exits 0 having
         # created nothing. So the tables are counted rather than the exit code trusted, and each
         # database is checked for tables only the OTHER modules own — which is what a shared ledger,
@@ -316,7 +379,8 @@ jobs:
           # module whose migrator never ran cannot clear it.
           for pair in agora_test:28 devplatform_test:21 policy_test:11 pricing_test:9 studio_test:10 \
                       community_test:14 market_test:20 billing_test:15 mint_test:7 foresight_test:16 \
-                      worlds_test:12 tessera_test:19; do
+                      worlds_test:12 tessera_test:19 \
+                      activity_test:4 notify_test:10 lantern_test:6 analytics_test:10; do
             db="${pair%%:*}"; floor="${pair##*:}"
             n=$(q "$db" "select count(*) from information_schema.tables where table_schema='public'")
             echo "${db}: ${n} tables (floor ${floor})"
@@ -328,12 +392,14 @@ jobs:
           # each module against ONE other is a check five modules can walk through.
           for owner in agora_test:voices devplatform_test:api_keys policy_test:policy_decisions pricing_test:price_quotes studio_test:brand_kits \
                        community_test:communities market_test:bids billing_test:invoices mint_test:tokens \
-                       foresight_test:house_seeds worlds_test:player_profiles tessera_test:beacons; do
+                       foresight_test:house_seeds worlds_test:player_profiles tessera_test:beacons \
+                       activity_test:activity_records notify_test:deliveries lantern_test:rum_samples analytics_test:subject_keys; do
             odb="${owner%%:*}"; table="${owner##*:}"
             [ "$(q "$odb" "select count(*) from information_schema.tables where table_name='${table}'")" = "1" ] \
               || { echo "::error::${odb} does not have its own ${table}"; exit 1; }
             for other in agora_test devplatform_test policy_test pricing_test studio_test \
-                         community_test market_test billing_test mint_test foresight_test worlds_test tessera_test; do
+                         community_test market_test billing_test mint_test foresight_test worlds_test tessera_test \
+                         activity_test notify_test lantern_test analytics_test; do
               [ "$other" = "$odb" ] && continue
               [ "$(q "$other" "select count(*) from information_schema.tables where table_name='${table}'")" = "0" ] \
                 || { echo "::error::${odb}'s ${table} was created in ${other}"; exit 1; }
@@ -341,7 +407,8 @@ jobs:
           done
           # And each ledger records its OWN module's versions, under its own service name.
           for db in agora_test devplatform_test policy_test pricing_test studio_test \
-                    community_test market_test billing_test mint_test foresight_test worlds_test tessera_test; do
+                    community_test market_test billing_test mint_test foresight_test worlds_test tessera_test \
+                    activity_test notify_test lantern_test analytics_test; do
             n=$(q "$db" "select count(*) from schema_migrations")
             echo "${db}: ${n} migrations recorded"
             [ "$n" -gt 0 ] || { echo "::error::${db} has an empty migration ledger"; exit 1; }

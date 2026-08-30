@@ -593,3 +593,59 @@ export async function fakeTarget(): Promise<FakeTarget> {
       }),
   }
 }
+
+/* ------------------------------------------------------------------ the re-arm, settled */
+
+/**
+ * Read the `jobs` table once the re-arms a completed cycle started have actually landed.
+ *
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ * **THE FLAKE THIS EXISTS FOR, AND WHY IT IS NOT A WEAKER ASSERTION.**
+ *
+ * `JobRunner.tick()` awaits every handler and every `queue.complete()`. It does NOT await the
+ * re-arm, and it cannot: the re-arm is `rescheduleRecurring`'s reaction to the runner's `completed`
+ * event, `RunnerEvent` handlers are declared `=> void`, and `jobs.ts` therefore starts the enqueue
+ * with `void queue.enqueue(…).catch(…)`. So the window between "tick() resolved" and "the recurring
+ * row is back" is real, and its width is the width of one INSERT.
+ *
+ * On a laptop that is a millisecond and nobody ever saw it. On a loaded CI runner sharing a
+ * Postgres service container it is not: release 2026.8.105's build failed here with `5 !== 8` —
+ * three of the eight re-arms had not landed when the count was read. Instrumenting the queue shows
+ * the mechanism directly: an enqueue started inside the last tick is still in flight after that
+ * tick's promise has resolved.
+ *
+ * **The count is still the property.** This does not retry an assertion or accept a smaller number:
+ * it waits for the WRITES THE ASSERTION IS ABOUT to finish, then the caller asserts exactly what it
+ * asserted before, with the same message and the same numbers. A row that is genuinely lost never
+ * appears, the deadline expires, and the case fails with the same `5 !== 8` it would have failed
+ * with — just for a reason that is true.
+ *
+ * Polling rather than a fixed sleep, because a fixed sleep is either slower than it needs to be on
+ * every run or too short on the one run that matters.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function settledJobCount(
+  sql: postgres.Sql,
+  expected: number,
+  timeoutMs = 10_000,
+): Promise<number> {
+  const deadline = Date.now() + timeoutMs
+  let seen = 0
+  for (;;) {
+    seen = (await sql<{ n: number }[]>`select count(*)::int as n from jobs`)[0]?.n ?? 0
+    if (seen === expected || Date.now() > deadline) return seen
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+/** The same wait, for the case that reads the rows themselves rather than counting them. */
+export async function settledJobRows(
+  sql: postgres.Sql,
+  expected: number,
+  timeoutMs = 10_000,
+): Promise<Array<{ kind: string; key: string; run_at: Date }>> {
+  await settledJobCount(sql, expected, timeoutMs)
+  return await sql<{ kind: string; key: string; run_at: Date }[]>`
+    select kind, key, run_at from jobs order by kind
+  `
+}

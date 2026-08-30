@@ -60,6 +60,8 @@ import {
   openDirect,
   quietLogger,
   resetForesight,
+  settledJobCount,
+  settledJobRows,
   seedDraft,
   skip,
   testMetrics,
@@ -234,9 +236,9 @@ test('THE PROPERTY: a recurring row SURVIVES its own completion', { skip }, asyn
   // Not "an enqueue happened" — it happened before too. The row is STILL HERE, after the runner
   // deleted the one it ran, and it is scheduled for the future. Revert `index.ts`/`jobs.ts` to the
   // self-enqueue seam and every one of these rows is gone.
-  const rows = await sql<{ kind: string; key: string; run_at: Date }[]>`
-    select kind, key, run_at from jobs order by kind
-  `
+  // Read once the re-arms have LANDED, not once `tick()` resolved — `settledJobRows` carries the
+  // whole argument, and the assertion below is unchanged.
+  const rows = await settledJobRows(sql, expected.length)
   assert.deepEqual(
     rows.map((row) => `${row.kind}|${row.key}`).sort(),
     expected.map((job) => `${job.kind}|${job.key}`).sort(),
@@ -263,7 +265,7 @@ test('THE PROPERTY: a recurring row SURVIVES its own completion', { skip }, asyn
   for (let i = 0; i < 10; i += 1) second += await runner.tick()
   assert.ok(second >= expected.length, 'the schedule did not survive a second pass')
   assert.equal(
-    (await sql<{ n: number }[]>`select count(*)::int as n from jobs`)[0]?.n,
+    await settledJobCount(sql, expected.length),
     expected.length,
     'the recurring set did not survive a second completion',
   )

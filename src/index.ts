@@ -1,15 +1,21 @@
 /**
- * The composition root — for ALL TWELVE modules this process now serves.
+ * The composition root — for ALL SIXTEEN modules this process now serves.
  *
  * Everything this service is made of is built here, once, in an order that is not arbitrary. Each
  * step carries the reason it must come before the next; the ordering is the substance of the file.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════════
- * **WAVES M5a + M5b: THIS PROCESS IS TWELVE MODULES.** micro-deploy `docs/service-merge-plan.md`.
- * agora absorbed devplatform, policy, pricing and studio (M5a), then community, market, billing,
- * mint, foresight, worlds and tessera (M5b, the commerce/games tier), as the seed of what becomes
- * `platform`: one image, one listener, one `/livez`, one `/readyz`, one `/metrics`, and TWELVE
- * databases that are never merged and must never be reachable from each other's handlers.
+ * **WAVES M5a + M5b + M5c: THIS PROCESS IS SIXTEEN MODULES.** micro-deploy
+ * `docs/service-merge-plan.md`. agora absorbed devplatform, policy, pricing and studio (M5a), then
+ * community, market, billing, mint, foresight, worlds and tessera (M5b, the commerce/games tier),
+ * then activity and lantern (M5c) — which brought notify and analytics NESTED INSIDE THEM, because
+ * both were already merged processes of their own. That is the seed of what becomes `platform`: one
+ * image, one listener, one `/livez`, one `/readyz`, one `/metrics`, and SIXTEEN databases that are
+ * never merged and must never be reachable from each other's handlers.
+ *
+ * **FOURTEEN FACTORY CALLS, SIXTEEN MODULES.** This file calls `createActivityModule` and
+ * `createLanternModule`; those two call `createNotifyModule` and `createAnalyticsModule`. The
+ * nesting is preserved deliberately — see the M5c import block below for what it buys.
  *
  * Six of the M5b seven hold `ledger.postEntry` authority. The owner overruled the
  * ledger-isolation rule for the platform tier (§M5); the mitigations below are mandatory, not
@@ -84,6 +90,25 @@ import { MODULE_LABEL as MINT_MODULE, createMintModule } from './mint/module.ts'
 import { MODULE_LABEL as FORESIGHT_MODULE, createForesightModule } from './foresight/module.ts'
 import { MODULE_LABEL as WORLDS_MODULE, createWorldsModule } from './worlds/module.ts'
 import { MODULE_LABEL as TESSERA_MODULE, createTesseraModule } from './tessera/module.ts'
+// ── WAVE M5c: THE TELEMETRY AND BUS-TAIL TIER, AND THE ONE THING THAT IS NEW ABOUT IT ─────────
+//
+// Two imports, FOUR modules. activity and lantern were already merged processes of their own —
+// wave M2 put notify inside activity, wave M1b put analytics inside lantern — and that nesting is
+// PRESERVED rather than flattened. This file calls two factories; each of them calls one more.
+//
+// The nesting is not sentiment about file layout. notify's `NOTIFY_INGEST_SIGNING_SECRET`,
+// `SMTP_PASS` and `NOTIFY_GATEWAY_TOKEN`, and analytics' `ANALYTICS_PSEUDONYM_KEY`, are reachable
+// from exactly one directory each today, and `activity/moduleboundary.test.ts` and
+// `lantern/privacyboundary.test.ts` are able to CHECK that because there is a seam to check.
+// Flattening would have deleted the seam and left the guarantee as a convention. The pepper is the
+// sharp case: it cannot be rotated without orphaning every subject key derived under it, so a leak
+// has no remediation — only prevention.
+//
+// Neither factory names a database handle, and neither `activity/env.ts` nor `lantern/env.ts` — let
+// alone the nested modules' — is imported here, so ACTIVITY_INGEST_SECRETS, NOTIFY_*, LANTERN_TOKEN,
+// ANALYTICS_PSEUDONYM_KEY and ANALYTICS_DELIVERY_SECRETS never enter this file's scope at all.
+import { MODULE_LABEL as ACTIVITY_MODULE, createActivityModule } from './activity/module.ts'
+import { MODULE_LABEL as LANTERN_MODULE, createLanternModule } from './lantern/module.ts'
 
 // 1. Environment. Importing `./env.ts` validated it; a missing or placeholder secret has already
 //    exited with a structured line naming the variable.
@@ -326,6 +351,12 @@ const mint = await build(MINT_MODULE, () => createMintModule(host))
 const foresight = await build(FORESIGHT_MODULE, () => createForesightModule(host))
 const worlds = await build(WORLDS_MODULE, () => createWorldsModule(host))
 const tessera = await build(TESSERA_MODULE, () => createTesseraModule(host))
+// The M5c two, each of which builds a module of its own inside itself: activity builds notify,
+// lantern builds analytics. `build` still sees TWO modules here and that is correct — a nested
+// module's fault throws out through its host's factory, which closes its own pools on the way,
+// so a bad ANALYTICS_DATABASE_URL unwinds fifteen pools rather than leaking them.
+const activity = await build(ACTIVITY_MODULE, () => createActivityModule(host))
+const lantern = await build(LANTERN_MODULE, () => createLanternModule(host))
 
 // ── AND EVERY PROBE THE MOUNTED MODULES CONTRIBUTE ────────────────────────────────────────────
 //
@@ -356,6 +387,9 @@ for (const probe of [
   ...foresight.probes,
   ...worlds.probes,
   ...tessera.probes,
+  // FOUR probes from these two, not two: each carries its nested module's up as well.
+  ...activity.probes,
+  ...lantern.probes,
 ]) {
   lifecycle.addProbe(probe)
 }
@@ -453,6 +487,8 @@ const server = createMergedServer(
     await foresight.beforeScrape()
     await worlds.beforeScrape()
     await tessera.beforeScrape()
+    await activity.beforeScrape()
+    await lantern.beforeScrape()
   },
   },
   // ONE FLAT TABLE, in a fixed order. Order among the mounted modules decides nothing —
@@ -470,6 +506,12 @@ const server = createMergedServer(
     ...foresight.routes,
     ...worlds.routes,
     ...tessera.routes,
+    // activity's own table then notify's, lantern's own then analytics' — each pair already
+    // concatenated and stamped by its host module. lantern's carries the process's ONE `fallback`,
+    // which is why it is LAST: `mountRoutes` takes the first fallback and matches none of them by
+    // path, so nothing after it could displace it anyway, but the order says what is intended.
+    ...activity.routes,
+    ...lantern.routes,
   ],
 )
 
@@ -537,6 +579,8 @@ await mint.start()
 await foresight.start()
 await worlds.start()
 await tessera.start()
+await activity.start()
+await lantern.start()
 
 // 10. Listen. Last of the construction steps, because a socket that accepts before its
 //     dependencies exist is a socket that answers 500.
@@ -559,6 +603,8 @@ logger.info('listening', {
     FORESIGHT_MODULE,
     WORLDS_MODULE,
     TESSERA_MODULE,
+    ACTIVITY_MODULE,
+    LANTERN_MODULE,
   ],
 })
 
@@ -590,6 +636,8 @@ lifecycle.onShutdown(() => mint.stop())
 lifecycle.onShutdown(() => foresight.stop())
 lifecycle.onShutdown(() => worlds.stop())
 lifecycle.onShutdown(() => tessera.stop())
+lifecycle.onShutdown(() => activity.stop())
+lifecycle.onShutdown(() => lantern.stop())
 lifecycle.onShutdown(
   () =>
     new Promise<void>((resolve) => {

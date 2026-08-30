@@ -19,10 +19,11 @@
  * them at boot is a service that could start without them.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════════
- * **WAVES M5a + M5b: TWELVE MODULES, TWELVE MIGRATION LEDGERS, AND WHY THEY CANNOT BE CONFUSED.**
+ * **WAVES M5a + M5b + M5c: SIXTEEN MODULES, SIXTEEN LEDGERS, AND WHY THEY CANNOT BE CONFUSED.**
  *
- * This process now migrates agora's databases, devplatform's, policy's, pricing's, studio's, and
- * the M5b seven — community's, market's, billing's, mint's, foresight's, worlds' and tessera's.
+ * This process now migrates agora's databases, devplatform's, policy's, pricing's, studio's, the
+ * M5b seven — community's, market's, billing's, mint's, foresight's, worlds' and tessera's — and the
+ * M5c four: activity's, notify's, lantern's and analytics'.
  * Every ledger is a table called `schema_migrations` — the name is a literal inside
  * `@cloudsforge/db` and takes no option — so the ONLY thing keeping agora's version 6 from being
  * read as studio's version 6 is that they are in different DATABASES. Nothing about the merge
@@ -31,8 +32,9 @@
  *   * `AGORA_DATABASE_URL`, `DEVPLATFORM_DATABASE_URL`, `POLICY_DATABASE_URL`,
  *     `PRICING_DATABASE_URL`, `STUDIO_DATABASE_URL`, `COMMUNITY_DATABASE_URL`,
  *     `MARKET_DATABASE_URL`, `BILLING_DATABASE_URL`, `MINT_DATABASE_URL`,
- *     `FORESIGHT_DATABASE_URL`, `WORLDS_DATABASE_URL` and `TESSERA_DATABASE_URL` name different
- *     databases. `assertDistinct` below REFUSES to run if they do not, before a single statement is
+ *     `FORESIGHT_DATABASE_URL`, `WORLDS_DATABASE_URL`, `TESSERA_DATABASE_URL`,
+ *     `ACTIVITY_DATABASE_URL`, `NOTIFY_DATABASE_URL`, `LANTERN_DATABASE_URL` and
+ *     `ANALYTICS_DATABASE_URL` name different databases. `assertDistinct` below REFUSES to run if they do not, before a single statement is
  *     issued. That refusal is
  *     cheap and the alternative is not: `inbox` and `jobs` exist in ALL FIVE schemas, and
  *     `outbox`, `event_subscriptions` and `outbox_deliveries` in four of them. One shared database
@@ -48,7 +50,7 @@
  *     returns four scalars — so this file never comes into possession of a DSN, an ingest secret
  *     or an image-model key.
  *
- * `migratortargets.test.ts` pins all five and MEASURES the table overlap rather than asserting it,
+ * `migratortargets.test.ts` pins all sixteen and MEASURES the table overlap rather than asserting it,
  * including the fact that every module numbers its migrations from 1.
  *
  * Every target still runs — the loop records a failure and carries on — so one run reports EVERY
@@ -62,7 +64,7 @@ import { migrate, type Sql } from '@cloudsforge/db'
 import { Logger } from '@cloudsforge/telemetry'
 import { SERVICE, env } from './env.ts'
 import { BASELINE_VERSION, MIGRATIONS } from './migrations.ts'
-// FOUR imports, and each returns four scalars and an array of DDL per database. They deliberately
+// ELEVEN imports, and each returns four scalars and an array of DDL per database. They deliberately
 // do NOT reach for the modules' `env.ts`: a second entry point holding a DSN it has no other reason
 // to hold is a hole, and this way the migrator cannot name one.
 import { devplatformMigrationTargets } from './devplatform/module.ts'
@@ -78,6 +80,13 @@ import { mintMigrationTargets } from './mint/module.ts'
 import { foresightMigrationTargets } from './foresight/module.ts'
 import { worldsMigrationTargets } from './worlds/module.ts'
 import { tesseraMigrationTargets } from './tessera/module.ts'
+// The M5c two, which each name FOUR databases between them: `activityMigrationTargets` includes
+// notify's and `lanternMigrationTargets` includes analytics', because the nesting is preserved and
+// each host module is the only thing that may read its nested module's configuration. That is not
+// tidiness: it is what keeps `ANALYTICS_PSEUDONYM_KEY` out of this process's scope entirely, and
+// that key cannot be rotated without orphaning every subject key derived under it.
+import { activityMigrationTargets } from './activity/module.ts'
+import { lanternMigrationTargets } from './lantern/module.ts'
 import { assertDistinct, type Target } from './migratortargets.ts'
 
 const log = new Logger({
@@ -125,6 +134,8 @@ const targets: readonly Target[] = [
   ...foresightMigrationTargets(),
   ...worldsMigrationTargets(),
   ...tesseraMigrationTargets(),
+  ...activityMigrationTargets(),
+  ...lanternMigrationTargets(),
 ]
 
 // BEFORE ANY STATEMENT. Two modules pointed at one database is not a migration that fails halfway;

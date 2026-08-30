@@ -52,13 +52,20 @@ import { migrateTestDb as migrateMintDb, openDb as openMintDb } from '../mint/te
 import { migrateTestDb as migrateForesightDb, openDb as openForesightDb } from '../foresight/testsupport.ts'
 import { migrateTestDb as migrateWorldsDb, openDb as openWorldsDb } from '../worlds/testsupport.ts'
 import { migrateTestDb as migrateTesseraDb, openDb as openTesseraDb } from '../tessera/testsupport.ts'
+// Wave M5c's four. activity and lantern each brought a NESTED module, so four harnesses arrive
+// from two directories — `../activity/notify/` and `../lantern/analytics/` are two levels down,
+// which is the only thing about them that differs from the twelve above.
+import { migrateTestDb as migrateActivityDb, openDb as openActivityDb } from '../activity/testsupport.ts'
+import { migrateTestDb as migrateNotifyDb, openDb as openNotifyDb } from '../activity/notify/testsupport.ts'
+import { migrateTestDb as migrateLanternDb, openDb as openLanternDb } from '../lantern/testsupport.ts'
+import { migrateTestDb as migrateAnalyticsDb, openDb as openAnalyticsDb } from '../lantern/analytics/testsupport.ts'
 
 /*
  * ── WAVE M5a: THIS BOOTS THE MERGED PROCESS, NOT THIS MODULE ──────────────────────────────────
  *
  * micro-deploy `docs/service-merge-plan.md`. There is no `index.ts` in this directory any more:
  * this service's composition root became `./module.ts`, and the process that runs it is
- * `../index.ts`, which builds twelve modules on one listener.
+ * `../index.ts`, which builds sixteen modules on one listener.
  *
  * REPOINTED RATHER THAN DROPPED, and it is a stronger test than it was. What it exists to prove is
  * that the asset-root check and probe are WIRED — `server.test.ts` proves the probe works when it
@@ -67,8 +74,8 @@ import { migrateTestDb as migrateTesseraDb, openDb as openTesseraDb } from '../t
  * registers it in a loop), so there is strictly more to lose and this is still the only thing
  * watching it.
  *
- * It also became the only test anywhere that boots all twelve modules against twelve real databases,
- * which is why it now needs all twelve DSNs — see `skip` below.
+ * It also became the only test anywhere that boots all SIXTEEN modules against sixteen real
+ * databases, which is why it needs all sixteen DSNs — see `skip` below.
  */
 const here = dirname(fileURLToPath(import.meta.url))
 const entrypoint = join(here, '..', 'index.ts')
@@ -78,7 +85,7 @@ const entrypoint = join(here, '..', 'index.ts')
  *
  * `../index.ts` calls `assertSchemaAtLeast` for each module before it listens, so a missing DSN is
  * an `exit(1)` with a message about a schema — the precise shape of a check that graded an early
- * return rather than the thing it named. All twelve or nothing.
+ * return rather than the thing it named. All sixteen or nothing.
  *
  * The names are the `_TEST_` spellings `service-ci.yml` exports, one CI database per declared
  * `database-env-var` entry.
@@ -100,6 +107,14 @@ const MERGED_TEST_DSNS = {
   FORESIGHT_DATABASE_URL: 'FORESIGHT_TEST_DATABASE_URL',
   WORLDS_DATABASE_URL: 'WORLDS_TEST_DATABASE_URL',
   TESSERA_DATABASE_URL: 'TESSERA_TEST_DATABASE_URL',
+  // Wave M5c added the telemetry and bus-tail tier. SIXTEEN now, and the failure mode is the same
+  // one M5b hit: `../index.ts` asserts EVERY module's schema before it listens, so one missing DSN
+  // is an `exit(1)` naming a schema, and all five cases in this file fail for a reason that has
+  // nothing to do with the asset root.
+  ACTIVITY_DATABASE_URL: 'ACTIVITY_TEST_DATABASE_URL',
+  NOTIFY_DATABASE_URL: 'NOTIFY_TEST_DATABASE_URL',
+  LANTERN_DATABASE_URL: 'LANTERN_TEST_DATABASE_URL',
+  ANALYTICS_DATABASE_URL: 'ANALYTICS_TEST_DATABASE_URL',
 } as const
 
 const missingDsn = Object.values(MERGED_TEST_DSNS).filter((name) => {
@@ -116,7 +131,7 @@ const missingDsn = Object.values(MERGED_TEST_DSNS).filter((name) => {
  * somebody to fix a thing that was never broken. It names every missing one.
  *
  * `service-ci.yml`'s skip scan reads this line: a message naming variables THIS job exported is
- * fatal, which is what it must be, because all twelve are declared in `database-env-var`.
+ * fatal, which is what it must be, because all sixteen are declared in `database-env-var`.
  */
 const mergedSkip = missingDsn.length === 0 ? false : `set ${missingDsn.join(', ')}`
 
@@ -182,6 +197,26 @@ function spawnService(
       FORESIGHT_ORACLE_ADDRESS: '0x0000000000000000000000000000000000000002',
       FORESIGHT_ORACLE_USER_ID: 'ci',
       FORESIGHT_ORACLE_ORDER_ID: 'ci-oracle',
+      // ── WAVE M5c: the four telemetry/bus-tail modules' boot-REQUIRED configuration ───────────
+      //
+      // Each of these is a variable one of the four `env.ts` files demands at IMPORT — they call
+      // `process.exit(1)` on an incomplete configuration — so without them `../index.ts` dies
+      // before it can assert a schema, let alone listen. GENERATED per run rather than written as
+      // literals for the micro-org #142 reason the two secrets above carry: a fixture that looks
+      // like a placeholder is refused by `@cloudsforge/secrets`, and rightly.
+      //
+      // `ANALYTICS_PSEUDONYM_KEY` is generated here like the others, and this is the ONLY context
+      // in which a fresh one is harmless: the database it derives into lives for one test run. In
+      // the estate it cannot be rotated at all without orphaning every subject key under it.
+      ACTIVITY_INGEST_SECRETS: randomBytes(48).toString('base64'),
+      NOTIFY_INGEST_SIGNING_SECRET: randomBytes(48).toString('base64'),
+      LANTERN_TOKEN: randomBytes(48).toString('base64'),
+      ANALYTICS_TOKEN: randomBytes(48).toString('base64'),
+      ANALYTICS_PSEUDONYM_KEY: randomBytes(48).toString('base64'),
+      ANALYTICS_DELIVERY_SECRETS: randomBytes(48).toString('base64'),
+      // notify builds the link in a notification from this. A loopback origin: the boot must not
+      // depend on a peer, and nothing in a boot sends a notification.
+      NOTIFY_PUBLIC_URL: 'http://127.0.0.1:4111',
       LOG_LEVEL: 'info',
       // No Foundry credential: booting must never depend on a spend credential, and a boot test
       // that could spend money is a boot test nobody runs.
@@ -300,7 +335,7 @@ async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
 let schema: Promise<void> | null = null
 function migratedSchema(): Promise<void> {
   return (schema ??= (async () => {
-    // FIVE schemas, because the merged process asserts five before it listens. Each module's own
+    // SIXTEEN schemas, because the merged process asserts sixteen before it listens. Each module's own
     // `migrateTestDb` runs that module's own `MIGRATIONS` against that module's own DSN — never a
     // shared handle, for the reason `../migratortargets.ts` refuses at runtime: `inbox` and `jobs`
     // exist in all twelve, so one shared database is two `create table inbox` racing and the later
@@ -318,6 +353,10 @@ function migratedSchema(): Promise<void> {
       ['foresight', openForesightDb, migrateForesightDb],
       ['worlds', openWorldsDb, migrateWorldsDb],
       ['tessera', openTesseraDb, migrateTesseraDb],
+      ['activity', openActivityDb, migrateActivityDb],
+      ['notify', openNotifyDb, migrateNotifyDb],
+      ['lantern', openLanternDb, migrateLanternDb],
+      ['analytics', openAnalyticsDb, migrateAnalyticsDb],
     ]
     for (const [name, open, migrate] of modules) {
       const sql = open()

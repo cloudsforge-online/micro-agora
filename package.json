@@ -2,7 +2,7 @@
   "name": "@cloudsforge/agora",
   "version": "2026.8.105",
   "private": true,
-  "description": "Forge Agora. The ecosystem's public square: voices, posts, replies, quotes, echoes, sparks, follows, circles, tags, whispers, notifications and moderation. Reverse-chronological only — there is no ranked feed, and no audience count is ever public.",
+  "description": "Forge Agora. The ecosystem's public square: voices, posts, replies, quotes, echoes, sparks, follows, circles, tags, whispers, notifications and moderation. Reverse-chronological only \u2014 there is no ranked feed, and no audience count is ever public.",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.9.0",
@@ -14,8 +14,8 @@
     "migrate": "node --import tsx src/migrator.ts",
     "typecheck": "tsc --noEmit",
     "_test": "--test-concurrency=1 is required, not a preference: every database test file truncates this service's tables between cases, and node:test runs FILES in parallel by default. A TRUNCATE takes an AccessExclusiveLock, so one file's reset deadlocks against another file's inserts (40P01). The ledger learned this the hard way, market copied it, and this service copied market. Cases within a file already run in order.",
-    "_test_glob": "node:test does not recurse. Every mounted module's suites must be named explicitly or they silently do not run — and `skipped 0` would not say so, because node:test does not count cases inside a describe it never loaded.",
-    "test": "node --import tsx --test --test-concurrency=1 src/*.test.ts src/devplatform/*.test.ts src/policy/*.test.ts src/pricing/*.test.ts src/studio/*.test.ts src/community/*.test.ts src/market/*.test.ts src/billing/*.test.ts src/mint/*.test.ts src/foresight/*.test.ts src/worlds/*.test.ts src/tessera/*.test.ts",
+    "_test_glob": "node:test does not recurse. Every mounted module's suites must be named explicitly or they silently do not run \u2014 and `skipped 0` would not say so, because node:test does not count cases inside a describe it never loaded.",
+    "test": "node --import tsx --test --test-concurrency=1 src/*.test.ts src/devplatform/*.test.ts src/policy/*.test.ts src/pricing/*.test.ts src/studio/*.test.ts src/community/*.test.ts src/market/*.test.ts src/billing/*.test.ts src/mint/*.test.ts src/foresight/*.test.ts src/worlds/*.test.ts src/tessera/*.test.ts src/activity/*.test.ts src/activity/notify/*.test.ts src/lantern/*.test.ts src/lantern/analytics/*.test.ts",
     "build": "tsc -p tsconfig.build.json",
     "dev": "node --import tsx --watch src/index.ts",
     "check": "pnpm typecheck && pnpm test"
@@ -49,11 +49,13 @@
     "@ethereumjs/evm": "^3.1.0",
     "@ethereumjs/statemanager": "^2.4.0",
     "@ethereumjs/util": "^9.1.0",
+    "nodemailer": "^6.9.16",
     "postgres": "^3.4.5",
     "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/nodemailer": "^6.4.17",
     "jose": "^5.9.6",
     "typescript": "^5.7.2"
   }

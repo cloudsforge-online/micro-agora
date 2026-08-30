@@ -341,6 +341,14 @@ const ENV_SOURCES = [
   '../foresight/env.ts',
   '../worlds/env.ts',
   '../tessera/env.ts',
+  // Wave M5c: the telemetry and bus-tail tier. FOUR more `env.ts` files on TWO absorbed
+  // repositories, because activity and lantern each brought a nested module — and the nested two
+  // are two directories deep, which is the only way this list differs in shape from the twelve
+  // above. Sixteen now, and `.env.example` declares what all sixteen read.
+  '../activity/env.ts',
+  '../activity/notify/env.ts',
+  '../lantern/env.ts',
+  '../lantern/analytics/env.ts',
 ] as const
 
 /**
@@ -372,6 +380,22 @@ test('.env.example declares every variable this service reads, with no real secr
     const text = readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8')
     for (const m of text.matchAll(/source,\s*'([A-Z][A-Z0-9_]*)'/g)) readAnywhere.add(m[1] as string)
     for (const m of text.matchAll(/source\['([A-Z][A-Z0-9_]*)'\]/g)) readAnywhere.add(m[1] as string)
+    // A THIRD form, and it is a real read rather than an exemption. analytics reads its pepper
+    // through named constants — `source[LEGACY_PEPPER]` and `` source[`${PEPPER_PREFIX}${n}`] ``,
+    // because the variable is VERSIONED (`ANALYTICS_PSEUDONYM_KEY_V2`, …) and the version is not
+    // known until the environment is scanned. A scrape that could not see that form would report
+    // `ANALYTICS_PSEUDONYM_KEY` as declared-but-unread and invite somebody to delete it from
+    // `.env.example` — the one variable in this estate whose absence is unrecoverable, because a
+    // pepper cannot be rotated without orphaning every subject key derived under it.
+    //
+    // Widened rather than exempted, deliberately: an exemption would stop checking the variable,
+    // and this keeps checking it.
+    for (const m of text.matchAll(/^const ([A-Z][A-Z0-9_]*) = '([A-Z][A-Z0-9_]*)'/gm)) {
+      // Only when the constant is used to index `source` WHOLE. `PEPPER_PREFIX` is spelled the same
+      // way but is used as `` source[`${PEPPER_PREFIX}${n}`] `` — it is half a name, not a variable,
+      // and adding it would have this scrape demand `ANALYTICS_PSEUDONYM_KEY_V` in `.env.example`.
+      if (text.includes(`source[${m[1] as string}]`)) readAnywhere.add(m[2] as string)
+    }
   }
   assert.ok(
     readAnywhere.size > read.size,

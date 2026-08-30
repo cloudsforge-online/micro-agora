@@ -112,7 +112,11 @@ describe('the throw reaches a response, not the process', () => {
     assert.match(KERNEL, /try \{[\s\S]{0,400}?selector\.for\(network\)/)
     // The dispatch is awaited through an `async` frame, which is what turns a synchronous throw in
     // a handler into a rejection this `.catch` sees.
-    assert.match(KERNEL, /void answer\(matched, \{[^\n]*\}\)\n\s*\.then\(/)
+    // `matched ?? fallback` since wave M5c: a fallback is never matched by path, so it is chosen
+    // HERE, on the same expression, and goes through the same `async` frame and the same
+    // `.catch`. The property this pins is unchanged — the dispatch is a promise before anything
+    // can throw synchronously into a `node:http` listener, which is what killed the pod.
+    assert.match(KERNEL, /void answer\(matched \?\? fallback, \{[^\n]*\}\)\n\s*\.then\(/)
     assert.match(KERNEL, /async function answer</)
   })
 
