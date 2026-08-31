@@ -1,19 +1,28 @@
 /**
- * The composition root — for ALL SIXTEEN modules this process now serves.
+ * The composition root — for ALL TWENTY-THREE modules this process now serves.
  *
  * Everything this service is made of is built here, once, in an order that is not arbitrary. Each
  * step carries the reason it must come before the next; the ordering is the substance of the file.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════════
- * **WAVES M5a + M5b + M5c: THIS PROCESS IS SIXTEEN MODULES.** micro-deploy
+ * **WAVES M5a + M5b + M5c + M5d: THIS PROCESS IS TWENTY-THREE MODULES.** micro-deploy
  * `docs/service-merge-plan.md`. agora absorbed devplatform, policy, pricing and studio (M5a), then
  * community, market, billing, mint, foresight, worlds and tessera (M5b, the commerce/games tier),
  * then activity and lantern (M5c) — which brought notify and analytics NESTED INSIDE THEM, because
- * both were already merged processes of their own. That is the seed of what becomes `platform`: one
- * image, one listener, one `/livez`, one `/readyz`, one `/metrics`, and SIXTEEN databases that are
- * never merged and must never be reachable from each other's handlers.
+ * both were already merged processes of their own — and then hub, trade, wallet, admin and emberkin
+ * (M5d), the first of which owns no database at all and the last of which brings TWO MORE nested
+ * inside it. That is the seed of what becomes `platform`: one image, one listener,
+ * one `/livez`, one `/readyz`, one `/metrics`, and TWENTY-TWO databases that are never merged and
+ * must never be reachable from each other's handlers.
  *
- * **FOURTEEN FACTORY CALLS, SIXTEEN MODULES.** This file calls `createActivityModule` and
+ * **TWENTY-TWO DATABASES, TWENTY-THREE MODULES**, and the module without one is hub: a
+ * backend-for-frontend that composes seven peers and holds no table. Its routes carry no
+ * `RouteSpec.sql` and its own `RequestContext` declares no `sql` field, so "hub queried agora's
+ * tables" is not a mistake it can make. See `./hub/module.ts`.
+ *
+ * **NINETEEN FACTORY CALLS, TWENTY-THREE MODULES.** This file calls `createActivityModule`,
+ * `createLanternModule` and `createEmberkinModule`; the first two call one nested factory each and
+ * the third calls two. Put another way: this file calls `createActivityModule` and
  * `createLanternModule`; those two call `createNotifyModule` and `createAnalyticsModule`. The
  * nesting is preserved deliberately — see the M5c import block below for what it buys.
  *
@@ -109,6 +118,89 @@ import { MODULE_LABEL as TESSERA_MODULE, createTesseraModule } from './tessera/m
 // ANALYTICS_PSEUDONYM_KEY and ANALYTICS_DELIVERY_SECRETS never enter this file's scope at all.
 import { MODULE_LABEL as ACTIVITY_MODULE, createActivityModule } from './activity/module.ts'
 import { MODULE_LABEL as LANTERN_MODULE, createLanternModule } from './lantern/module.ts'
+// ── WAVE M5d: THE ACCOUNT TIER — AND THE FIRST MODULE HERE THAT OWNS NO DATABASE ─────────────
+//
+// hub is a backend-for-frontend: it composes seven peers on behalf of a signed-in person and
+// holds no table of its own. There is no `HUB_DATABASE_URL`, no pool, no migration and no schema
+// to assert, so its `schemaVersion` is `null` rather than a number — see `build()` below.
+//
+// It is mounted under `/v1/hub/*` rather than at the bare paths it served standalone. Seven of
+// its eleven routes collide with a module already in this process: `GET /v1/search` is agora's
+// own, and six `/v1/conversions…`, `/v1/portfolio`, `/v1/transfers` are wallet's. Matching is
+// FIRST-WINS over one flat table, so each of those would be a dead route that looks alive. The
+// gateway rewrite that keeps hub-web's relative calls arriving is part of the same release —
+// `cf-api-hub` in `deploy/gateway/dynamic/estate-web.yml`; see `hub/server.ts`'s `REMOUNTED_PATHS`
+// for why a remount without its rewrite is the M5b tessera regression repeated.
+import { MODULE_LABEL as HUB_MODULE, createHubModule } from './hub/module.ts'
+// ── WAVE M5d: THE TRADING ENGINE ─────────────────────────────────────────────────────────────
+//
+// trade holds `ledger.postEntry` authority and it is the module whose JOBS move money on a timer:
+// `bot.tick` places live orders, `bot.settle` books performance fees, and `exchange.transfer`
+// completes withdrawals that have already DEBITED a customer. The owner overruled the
+// ledger-isolation rule for this tier (§M5); the mitigations are not optional, and trade's are the
+// ones that matter most — its OWN `TRADE_SERVICE_TOKEN`-built ledger client, its OWN JobRunner per
+// network, `{ module }` on every job metric, and its OWN suffixed webhook path against its OWN
+// inbox. `./trade/env.ts` is NOT imported here, so `TRADE_DATABASE_URL` and `TRADE_SERVICE_TOKEN`
+// never enter this file's scope.
+//
+// No path of trade's is remounted: its whole surface (`/v1/strategies`, `/v1/capabilities`,
+// `/v1/series…`, `/v1/backtests…`, `/v1/bots…`, `/v1/exchange/…`) collides with nothing, which
+// `./mergedroutes.test.ts` computes over every ordered pair rather than assuming.
+import { MODULE_LABEL as TRADE_MODULE, createTradeModule } from './trade/module.ts'
+// ── WAVE M5d: THE WALLET, AND THE ONE MODULE WHOSE PATHS CANNOT MOVE ─────────────────────────
+//
+// `public-api.yml` routes SEVEN `api.<apex>` prefixes straight at wallet — `/v1/wallets`,
+// `/v1/deposits`, `/v1/withdrawals`, `/v1/spend`, `/v1/transfers`, `/v1/conversions`,
+// `/v1/portfolio` — and `estate-web.yml` gives it the whole `pay.<suffix>` host. Those are the
+// SDK's published paths, so wallet is the PUBLIC owner of every path it collides on and remounts
+// nothing. hub is the module that moved, under `/v1/hub`; the asymmetry is not a preference
+// between two modules but which of them a caller outside this estate already addresses.
+//
+// Its webhook is `POST /events`, UNVERSIONED, and it is the whole of the process's third event
+// family — no suffix and deliberately absent from `./server.ts`'s `SPLIT_EVENT_PATHS`, because
+// nothing else in this process declares that path and a suffix exists only to keep two keys from
+// deciding for each other. `./wallet/server.ts`'s `EVENTS_PATH` carries the argument.
+//
+// `./wallet/env.ts` is NOT imported here, so `WALLET_DATABASE_URL`, `WALLET_IDENTITY_CREDENTIAL`
+// and `WALLET_FEE_QUOTES` never enter this file's scope.
+import { MODULE_LABEL as WALLET_MODULE, createWalletModule } from './wallet/module.ts'
+// ── WAVE M5d: THE OPERATOR CONSOLE'S BACKEND, AND THE ESTATE'S AUDIT CHAIN ───────────────────
+//
+// admin holds the `audit` table — a hash-chained log whose entire value is that every privileged
+// action in the estate lands in it and nowhere else — plus the backup and restore control plane
+// and the `estate_identity` boot refusal that makes a cross-environment restore unreachable.
+//
+// TWO paths of its thirty-one move, and only two families: `POST /v1/events` gains the usual
+// suffix, and its five `/v1/worlds…` operator controls remount under `/v1/operator/worlds…`
+// because `GET /v1/worlds` is nda's public surface. EVERYTHING ELSE STAYS BARE, and that is
+// load-bearing: billing calls this module's `/v1/engagement/policies` service-to-service by
+// service name, bypassing the gateway, so a blanket remount would break it in a way no gateway
+// rewrite could reach. `./admin/server.ts`'s `REMOUNTED_PATHS` carries the whole argument.
+//
+// `./admin/env.ts` is NOT imported here, so `ADMIN_DATABASE_URL`, `ADMIN_API_IDENTITY_CREDENTIAL`
+// and `ADMIN_ESTATE_ENVIRONMENT` never enter this file's scope.
+import { MODULE_LABEL as ADMIN_MODULE, createAdminModule } from './admin/module.ts'
+// ── WAVE M5d: THREE TITLES BEHIND ONE FACTORY CALL ───────────────────────────────────────────
+//
+// ONE import, THREE modules. emberkin was already a merged process of its own — wave M3 put
+// aetherholm inside it, wave M4a put nda inside it too — and that nesting is PRESERVED rather than
+// flattened, exactly as activity/notify and lantern/analytics are. This file calls one factory;
+// that factory calls two more.
+//
+// It buys two guarantees that would otherwise be conventions: `emberkin/mergedupstreams.test.ts`
+// reads the three titles' `env.ts` files and asserts no nested title declares an inbound secret of
+// its own, and `emberkin/mergedroutes.test.ts` asserts their three route tables overlap on exactly
+// the paths each filters out. The first is what makes emberkin the ONE module of this process
+// allowed to verify a webhook once and fan out to three sinks — all three read the same
+// estate-wide `OUTBOX_SIGNING_SECRET`, and all three subscribe to `identity.user.deleted`, so
+// routing that to one of them would answer 202 to a deletion two thirds of which never happened.
+//
+// aetherholm's two FROZEN contract paths move: `GET /v1/title` and `POST /v1/provision` are
+// tessera's in this process, and aetherholm serves them under `/aetherholm`. That is the collision
+// wave M3 refused tessera over, arriving from the other direction — see `REMOUNTED_PATHS` in
+// `./emberkin/aetherholm/module.ts`, and note that the deploy half (aetherholm's base URL in the
+// `worlds` title registry) is not optional.
+import { MODULE_LABEL as EMBERKIN_MODULE, createEmberkinModule } from './emberkin/module.ts'
 
 // 1. Environment. Importing `./env.ts` validated it; a missing or placeholder secret has already
 //    exited with a structured line naming the variable.
@@ -317,7 +409,11 @@ const host = {
 }
 
 const started: Array<{ readonly label: string; stop(): Promise<void> }> = []
-async function build<T extends { stop(): Promise<void>; readonly schemaVersion: number }>(
+// `schemaVersion: number | null` rather than `number`: hub owns no database, and `0` would read as
+// "schema at version zero" — a database in an unmigrated state, the exact condition
+// `assertSchemaAtLeast` exists to refuse. `null` in the `module ready` line says there is no schema
+// to be at a version of.
+async function build<T extends { stop(): Promise<void>; readonly schemaVersion: number | null }>(
   label: string,
   make: () => Promise<T>,
 ): Promise<T> {
@@ -357,6 +453,11 @@ const tessera = await build(TESSERA_MODULE, () => createTesseraModule(host))
 // so a bad ANALYTICS_DATABASE_URL unwinds fifteen pools rather than leaking them.
 const activity = await build(ACTIVITY_MODULE, () => createActivityModule(host))
 const lantern = await build(LANTERN_MODULE, () => createLanternModule(host))
+const hub = await build(HUB_MODULE, () => createHubModule(host))
+const trade = await build(TRADE_MODULE, () => createTradeModule(host))
+const wallet = await build(WALLET_MODULE, () => createWalletModule(host))
+const admin = await build(ADMIN_MODULE, () => createAdminModule(host))
+const emberkin = await build(EMBERKIN_MODULE, () => createEmberkinModule(host))
 
 // ── AND EVERY PROBE THE MOUNTED MODULES CONTRIBUTE ────────────────────────────────────────────
 //
@@ -390,6 +491,26 @@ for (const probe of [
   // FOUR probes from these two, not two: each carries its nested module's up as well.
   ...activity.probes,
   ...lantern.probes,
+  // SEVEN from hub, and not one of them is a database: identity's JWKS and five peers' `/livez`,
+  // all soft, plus the one hard `identity-credential` probe. See `hub/module.ts`.
+  ...hub.probes,
+  // FOUR from trade: its own database (hard) and three peers' `/livez` (soft). The standalone
+  // service marked none of the three hard for reasons it recorded; in this process a hard probe on
+  // a peer would remove seventeen modules from the balancer over one module's upstream incident.
+  ...trade.probes,
+  // FIVE from wallet, TWO of them hard: its own database, and `identity-credential`, which fails
+  // only when no credential is configured at all — a deployment that cannot serve one money route
+  // and will not fix itself. The three peer probes are soft for the reason the standalone service
+  // recorded, and more so here: a hard one would empty the balancer of eighteen modules.
+  ...wallet.probes,
+  // FIVE from admin, ONE of them hard: its own database, because the audit chain lives in it and
+  // nothing this module exists to do may happen without an audit row (SD-15). Its JWKS probe is
+  // SOFT here where the standalone marked it hard — see `admin/module.ts`.
+  ...admin.probes,
+  // SEVEN from emberkin, and THREE of them are databases — its own, aetherholm's and nda's — plus
+  // nda's HARD `nda-identity-credential` and four soft upstreams. One factory call, three titles'
+  // readiness.
+  ...emberkin.probes,
 ]) {
   lifecycle.addProbe(probe)
 }
@@ -489,6 +610,11 @@ const server = createMergedServer(
     await tessera.beforeScrape()
     await activity.beforeScrape()
     await lantern.beforeScrape()
+    await hub.beforeScrape()
+    await trade.beforeScrape()
+    await wallet.beforeScrape()
+    await admin.beforeScrape()
+    await emberkin.beforeScrape()
   },
   },
   // ONE FLAT TABLE, in a fixed order. Order among the mounted modules decides nothing —
@@ -506,6 +632,20 @@ const server = createMergedServer(
     ...foresight.routes,
     ...worlds.routes,
     ...tessera.routes,
+    // hub's eleven, every one of them under `/v1/hub` and NONE of them carrying a `sql` selector —
+    // it is the one module here that owns no database, so its specs resolve to nothing rather than
+    // to this file's handle. See `hub/module.ts`.
+    ...hub.routes,
+    // trade's thirty-four, every one at the path it served standalone. See the M5d import block.
+    ...trade.routes,
+    // wallet's twenty-six, every one BARE — including its unversioned `POST /events`. See the M5d
+    // import block for why this is the module that does not move.
+    ...wallet.routes,
+    // admin's thirty-one: twenty-six bare, four under `/v1/operator/worlds` and one suffixed
+    // event path. See the M5d import block.
+    ...admin.routes,
+    // THREE titles' tables in one spread, each already stamped with its own module's selector.
+    ...emberkin.routes,
     // activity's own table then notify's, lantern's own then analytics' — each pair already
     // concatenated and stamped by its host module. lantern's carries the process's ONE `fallback`,
     // which is why it is LAST: `mountRoutes` takes the first fallback and matches none of them by
@@ -581,6 +721,11 @@ await worlds.start()
 await tessera.start()
 await activity.start()
 await lantern.start()
+await hub.start()
+await trade.start()
+await wallet.start()
+await admin.start()
+await emberkin.start()
 
 // 10. Listen. Last of the construction steps, because a socket that accepts before its
 //     dependencies exist is a socket that answers 500.
@@ -638,6 +783,11 @@ lifecycle.onShutdown(() => worlds.stop())
 lifecycle.onShutdown(() => tessera.stop())
 lifecycle.onShutdown(() => activity.stop())
 lifecycle.onShutdown(() => lantern.stop())
+lifecycle.onShutdown(() => hub.stop())
+lifecycle.onShutdown(() => trade.stop())
+lifecycle.onShutdown(() => wallet.stop())
+lifecycle.onShutdown(() => admin.stop())
+lifecycle.onShutdown(() => emberkin.stop())
 lifecycle.onShutdown(
   () =>
     new Promise<void>((resolve) => {

@@ -87,6 +87,21 @@ import { tesseraMigrationTargets } from './tessera/module.ts'
 // that key cannot be rotated without orphaning every subject key derived under it.
 import { activityMigrationTargets } from './activity/module.ts'
 import { lanternMigrationTargets } from './lantern/module.ts'
+import { tradeMigrationTargets } from './trade/module.ts'
+import { walletMigrationTargets } from './wallet/module.ts'
+import { adminMigrationTargets } from './admin/module.ts'
+// THREE databases from one call: `emberkinMigrationTargets` includes aetherholm's and nda's,
+// because the nesting is preserved and that function is what knows they exist.
+import { emberkinMigrationTargets } from './emberkin/module.ts'
+// ── WAVE M5d: THE MODULE THAT IS DELIBERATELY ABSENT FROM THIS LIST ──────────────────────────
+//
+// `./hub/module.ts` is NOT imported, and its absence is the statement. hub owns no database — no
+// `HUB_DATABASE_URL`, no migrations, no schema version — so it has no `hubMigrationTargets()` to
+// call. Importing it anyway would pull `./hub/env.ts` into this process, which validates at import
+// and `process.exit(1)`s on any of EIGHT upstream URLs it demands; the migrator would then need
+// hub's peers configured in order to run a migration hub has no part in. That is precisely the
+// wave M5b failure (`agora-migrate` dying on `community … LEDGER_BASE_URL is required`), and here
+// the cheapest way to not have it is to not reach for the module at all.
 import { assertDistinct, type Target } from './migratortargets.ts'
 
 const log = new Logger({
@@ -136,6 +151,10 @@ const targets: readonly Target[] = [
   ...tesseraMigrationTargets(),
   ...activityMigrationTargets(),
   ...lanternMigrationTargets(),
+  ...tradeMigrationTargets(),
+  ...walletMigrationTargets(),
+  ...adminMigrationTargets(),
+  ...emberkinMigrationTargets(),
 ]
 
 // BEFORE ANY STATEMENT. Two modules pointed at one database is not a migration that fails halfway;

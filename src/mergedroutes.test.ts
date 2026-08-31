@@ -86,6 +86,41 @@ import {
   MOUNTED_INGEST_PATH as ANALYTICS_INGEST,
 } from './lantern/analytics/server.ts'
 import { ACTIVITY_INGEST_PATH } from './activity/routes.ts'
+// ── WAVE M5d ──────────────────────────────────────────────────────────────────────────────────
+//
+// hub's `mountableRoutes` takes ONE argument where every other module's takes two, because it has
+// no `NetworkSql` to be handed: it owns no database. `scrape` passes a second placeholder that the
+// function ignores, which is why the cast below is `as never` rather than a shape change.
+import {
+  mountableRoutes as hub,
+  MOUNT_PREFIX as HUB_PREFIX,
+  REMOUNTED_PATHS as HUB_REMOUNTS,
+} from './hub/server.ts'
+import { mountableRoutes as trade, MOUNTED_EVENTS_PATH as TRADE_EVENTS } from './trade/server.ts'
+// wallet's webhook is BARE and UNVERSIONED — `/events`, the process's third and smallest event
+// family. Imported so the cases below can assert it is served exactly once and appears in neither
+// of the other two families' lists.
+import { mountableRoutes as wallet, EVENTS_PATH as WALLET_EVENTS } from './wallet/server.ts'
+import {
+  mountableRoutes as admin,
+  MOUNTED_EVENTS_PATH as ADMIN_EVENTS,
+  OPERATOR_PREFIX as ADMIN_OPERATOR_PREFIX,
+  REMOUNTED_PATHS as ADMIN_REMOUNTS,
+} from './admin/server.ts'
+// ── WAVE M5d: THREE TITLES, and the only module here whose `mountableRoutes` takes a third
+// argument — the two nested titles' already-stamped tables. `scrape` passes placeholders for all
+// three, which is safe for the same reason it is safe everywhere else in this file: no
+// `mountableRoutes` TOUCHES its deps at construction.
+import {
+  mountableRoutes as emberkin,
+  MOUNTED_EVENTS_PATH as EMBERKIN_EVENTS,
+} from './emberkin/server.ts'
+import {
+  mountableRoutes as aetherholm,
+  REMOUNTED_PATHS as AETHERHOLM_REMOUNTS,
+  TITLE_MOUNT_PREFIX as AETHERHOLM_PREFIX,
+} from './emberkin/aetherholm/server.ts'
+import { mountableRoutes as nda } from './emberkin/nda/server.ts'
 
 interface Entry {
   readonly method: string
@@ -106,10 +141,14 @@ interface Entry {
  * construction — it maps `buildRoutes()` into specs — so a placeholder is safe and no database is
  * opened. This is the exact object `index.ts` concatenates into the process's one route table.
  */
-type Mountable = (deps: never, sql: never) => readonly RouteSpec<Db>[]
+// The third parameter is emberkin's alone: its `mountableRoutes` takes the two NESTED titles'
+// already-stamped tables and concatenates them. Scraped with an EMPTY list here, so this file sees
+// three separate tables rather than one — which is what the shadow check below needs, since
+// aetherholm's remounted contract paths must be compared against tessera's bare ones.
+type Mountable = (deps: never, sql: never, mounted: never) => readonly RouteSpec<Db>[]
 const PLACEHOLDER = {} as never
 function scrape(mountable: Mountable): Entry[] {
-  return mountable(PLACEHOLDER, PLACEHOLDER).map((spec) => ({
+  return mountable(PLACEHOLDER, PLACEHOLDER, [] as never).map((spec) => ({
     method: spec.method,
     path: spec.path,
     ...(spec.fallback ? { fallback: spec.fallback } : {}),
@@ -213,6 +252,20 @@ const TABLES: ReadonlyArray<readonly [string, Entry[]]> = [
   ['foresight', scrape(foresight)],
   ['worlds', scrape(worlds)],
   ['tessera', scrape(tessera)],
+  ['hub', scrape(hub as never)],
+  ['trade', scrape(trade)],
+  ['wallet', scrape(wallet)],
+  ['admin', scrape(admin)],
+  // emberkin's THREE tables arrive as one entry, because that is how `index.ts` spreads them and
+  // the shadow check below is about the merged table rather than about module bookkeeping. Their
+  // overlaps with EACH OTHER are `emberkin/mergedroutes.test.ts`'s subject, not this file's.
+  // THREE entries for one factory call, deliberately. `emberkin/module.ts` concatenates these
+  // before handing them to agora, but the shadow check needs them apart: aetherholm's remounted
+  // `/aetherholm/v1/title` is only meaningful against tessera's bare `/v1/title`, and nda's
+  // `/v1/worlds` only against admin's remounted `/v1/operator/worlds`.
+  ['emberkin', scrape(emberkin as never)],
+  ['aetherholm', scrape(aetherholm)],
+  ['nda', scrape(nda)],
   ['activity', scrape(activity)],
   ['notify', scrape(notify)],
   ['lantern', scrape(lantern as never)],
@@ -222,7 +275,7 @@ const TABLES: ReadonlyArray<readonly [string, Entry[]]> = [
 const OPERATIONAL = ['GET /livez', 'GET /readyz', 'GET /metrics'] as const
 const asString = (e: Entry): string => `${e.method} ${e.path}`
 
-describe('the fifteen mounted modules drop exactly the paths they must not serve', () => {
+describe('the twenty-two mounted modules drop exactly the paths they must not serve', () => {
   it('every mounted module drops all three operational paths', () => {
     for (const [name, entries] of TABLES) {
       if (name === 'agora') continue
@@ -257,6 +310,26 @@ describe('the fifteen mounted modules drop exactly the paths they must not serve
       'foresight:27',
       'worlds:19',
       'tessera:37',
+      // Wave M5d. Eleven: fourteen routes less the three operational ones. Every one of them is
+      // remounted under `/v1/hub`, so this count and the remount case below are the two halves of
+      // "hub serves what it served, at an address that collides with nothing".
+      'hub:11',
+      // trade: thirty-six declared less the three operational. Its `/v1/exchange/…` half is built
+      // by a second builder (`exchangeRoutes`) that `buildRoutes` concatenates, so a count that
+      // lost one of them would look exactly like a deployment with the order book switched off —
+      // which is a real configuration (`TRADE_EXCHANGE_ENABLED`) and therefore not suspicious.
+      'trade:33',
+      // wallet: twenty-nine declared less the three operational. Its `POST /events` is INSIDE this
+      // count and at its bare path, unlike every other module's webhook — see WALLET_EVENTS below.
+      'wallet:26',
+      // admin: thirty-four declared less the three operational.
+      'admin:31',
+      // The three titles, counted apart. emberkin: its own ten less the three operational — its
+      // `POST /v1/events` SURVIVES, suffixed, because it is the one webhook the three fan out
+      // from. aetherholm and nda each drop that fourth path as well as the three operational ones.
+      'emberkin:7',
+      'aetherholm:29',
+      'nda:30',
       // Wave M5c. activity's four are `/feed`, `/feed/:id`, `POST /ingest/activity` and the bare
       // `POST /ingest` 410 — the only 410 in the process for that path family, and the reason it is
       // MOUNTED rather than filtered. lantern's eight include its `fallback`, which is a spec in the
@@ -381,7 +454,335 @@ describe('the commerce/games path collisions are resolved by remounting the inte
   })
 })
 
-describe('the nine webhook paths, which are the only split routes in the process', () => {
+describe('WAVE M5d: hub moves its WHOLE surface, and the seven paths that made it necessary', () => {
+  /*
+   * ══════════════════════════════════════════════════════════════════════════════════════════
+   * The M5b block above remounts three collisions and leaves everything else bare. hub does the
+   * opposite: every one of its eleven routes moves under `/v1/hub`, and only SEVEN of them had to.
+   *
+   * Remounting only the seven would leave hub split across two address spaces — `/v1/dashboard`
+   * here, `/v1/hub/portfolio` there — which is a rule nobody can hold and which the next route
+   * added lands on the wrong side of by default. `hub/server.ts` derives `REMOUNTED_PATHS` from
+   * its own route table for exactly that reason, so a route ADDED there is remounted without
+   * anyone remembering to; these cases are what fail if that derivation is ever replaced by a
+   * hand-written list that falls behind.
+   * ══════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const pathsOf = (name: string): Set<string> =>
+    new Set(TABLES.find(([n]) => n === name)![1].map(asString))
+
+  it('GET /v1/search stays agora’s — the square’s, which the gateway routes to', () => {
+    assert.ok(pathsOf('agora').has('GET /v1/search'), 'the public owner keeps the bare path')
+    assert.ok(!pathsOf('hub').has('GET /v1/search'), 'hub must not shadow the square’s search')
+    assert.ok(pathsOf('hub').has('GET /v1/hub/search'), 'hub serves its own, namespaced')
+    assert.equal(HUB_REMOUNTS['/v1/search'], '/v1/hub/search')
+  })
+
+  it('and the six wallet paths stay wallet’s, which is the one that owns the money', () => {
+    // Both modules answer these, and the two answers are NOT interchangeable: wallet's are the
+    // authoritative reads and writes, hub's are a composition for one page. First-wins would have
+    // silently given a conversion POST to whichever module `index.ts` spread first.
+    const bare = [
+      'GET /v1/conversions',
+      'POST /v1/conversions',
+      'GET /v1/conversions/:id',
+      'POST /v1/conversions/quote',
+      'GET /v1/portfolio',
+      'GET /v1/transfers',
+    ]
+    for (const path of bare) {
+      assert.ok(!pathsOf('hub').has(path), `hub must not shadow ${path}`)
+      const moved = path.replace(' /v1/', ' /v1/hub/')
+      assert.ok(pathsOf('hub').has(moved), `hub serves ${moved}`)
+    }
+  })
+
+  it('and the four that collided with nothing moved anyway, which is the point', () => {
+    for (const moved of [
+      'GET /v1/hub/deployment',
+      'GET /v1/hub/dashboard',
+      'GET /v1/hub/activity',
+      'GET /v1/hub/next-actions',
+    ]) {
+      assert.ok(pathsOf('hub').has(moved), `hub serves ${moved}`)
+    }
+  })
+
+  it('every hub path is under the prefix, and the map is complete — no route left bare', () => {
+    const mounted = TABLES.find(([n]) => n === 'hub')![1]
+    for (const entry of mounted) {
+      assert.ok(
+        entry.path.startsWith(`${HUB_PREFIX}/`),
+        `${entry.method} ${entry.path} escaped the prefix — a bare hub path is a collision waiting ` +
+          'for the next module to be merged',
+      )
+    }
+    // Compared as PATHS, not as routes: `/v1/conversions` is both a GET and a POST, so eleven
+    // routes are ten distinct paths and the map is keyed by path. Asserting against
+    // `mounted.length` would be asserting that no path is ever served by two methods.
+    assert.deepEqual(
+      [...new Set(Object.values(HUB_REMOUNTS))].sort(),
+      [...new Set(mounted.map((e) => e.path))].sort(),
+      'REMOUNTED_PATHS must name every mounted path; it is derived from the same table, and a ' +
+        'divergence here means somebody replaced the derivation with a list',
+    )
+    for (const [from, to] of Object.entries(HUB_REMOUNTS)) {
+      assert.equal(to, from.replace('/v1/', `${HUB_PREFIX}/`), `${from} must map by prefix alone`)
+    }
+  })
+
+  it('hub mounts NO event path, which is a claim about what it is', () => {
+    // A backend-for-frontend consumes no bus and owns no inbox. If one ever appears here it must
+    // join SPLIT_EVENT_PATHS in ../server.ts, and this case is what says so.
+    assert.ok(
+      !pathsOf('hub').has(`POST ${EVENTS_PATH}`),
+      'hub declares no webhook — it reads peers, it does not ingest events',
+    )
+    assert.ok(![...pathsOf('hub')].some((p) => p.includes('/v1/events')), 'and none under the prefix either')
+  })
+
+  it('and it stamps no `sql` on any spec, because it owns no database', () => {
+    // The other fifteen modules stamp `RouteSpec.sql` over their whole table; an unstamped spec
+    // resolves to the KERNEL's handle, which is agora's. hub's specs are unstamped ON PURPOSE and
+    // that is only safe because no hub handler can reach `ctx.sql` — its own `RequestContext`
+    // declares no such field. This case pins the first half; `hub/server.ts` argues the second.
+    for (const spec of hub(PLACEHOLDER)) {
+      assert.equal(spec.sql, undefined, `${spec.method} ${spec.path} must not name a selector`)
+    }
+  })
+})
+
+describe('WAVE M5d: wallet keeps every bare path, and owns the third event family alone', () => {
+  /*
+   * ══════════════════════════════════════════════════════════════════════════════════════════
+   * The mirror image of the hub block above, and the pair is the rule stated twice.
+   *
+   * On a collision the PUBLIC owner — the module the gateway routes to — keeps the bare path and
+   * the other remounts. `public-api.yml`'s `cf-api-wallet` routes seven `api.<apex>` prefixes
+   * straight at wallet and `estate-web.yml` gives it the whole `pay.<suffix>` host, so wallet is
+   * the public owner of all six paths hub also declared. Nothing of wallet's moves.
+   * ══════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const pathsOf = (name: string): Set<string> =>
+    new Set(TABLES.find(([n]) => n === name)![1].map(asString))
+
+  it('every wallet path is exactly the path it served standalone', () => {
+    const w = pathsOf('wallet')
+    for (const bare of [
+      'GET /v1/wallets',
+      'POST /v1/wallets',
+      'GET /v1/deposits',
+      'POST /v1/deposits',
+      'GET /v1/withdrawals',
+      'POST /v1/withdrawals',
+      'POST /v1/spend',
+      'GET /v1/transfers',
+      'POST /v1/transfers',
+      'GET /v1/conversions',
+      'POST /v1/conversions',
+      'GET /v1/conversions/:id',
+      'POST /v1/conversions/quote',
+      'GET /v1/portfolio',
+      'GET /v1/admin/exchange-desk',
+      'POST /v1/admin/exchange-desk/funding',
+    ]) {
+      assert.ok(w.has(bare), `wallet must keep ${bare} — the SDK publishes it`)
+    }
+    // And no wallet path is namespaced. A `/v1/wallet/...` here would be the M5b tessera
+    // regression with the modules swapped: a published path answered by nobody.
+    for (const entry of TABLES.find(([n]) => n === 'wallet')![1]) {
+      assert.ok(!entry.path.startsWith('/v1/wallet/'), `${entry.path} was remounted; wallet must not move`)
+    }
+  })
+
+  it('and the six hub collided on are wallet’s, with hub’s under the prefix', () => {
+    const w = pathsOf('wallet')
+    const h = pathsOf('hub')
+    for (const bare of [
+      'GET /v1/conversions',
+      'POST /v1/conversions',
+      'GET /v1/conversions/:id',
+      'POST /v1/conversions/quote',
+      'GET /v1/portfolio',
+      'GET /v1/transfers',
+    ]) {
+      assert.ok(w.has(bare), `wallet keeps ${bare}`)
+      assert.ok(!h.has(bare), `hub must not shadow ${bare}`)
+      assert.ok(h.has(bare.replace(' /v1/', ' /v1/hub/')), `hub serves the namespaced ${bare}`)
+    }
+  })
+
+  it('`POST /events` is wallet’s, unversioned, and served exactly once in the process', () => {
+    assert.equal(WALLET_EVENTS, '/events')
+    const all = TABLES.flatMap(([name, entries]) => entries.map((e) => [name, asString(e)] as const))
+    const servers = all.filter(([, e]) => e === `POST ${WALLET_EVENTS}`).map(([n]) => n)
+    assert.deepEqual(servers, ['wallet'], 'exactly one module may declare the bare /events path')
+  })
+
+  it('and it is in NEITHER of the other two families’ lists, which is the claim', () => {
+    /*
+     * A suffix exists to stop two modules' keys deciding for each other at one shared path.
+     * Nothing else mounts `/events`, so there is no second key and nothing to decide.
+     *
+     * Listing it in `SPLIT_EVENT_PATHS` would name it in the bare `/v1/events` 410 body and send a
+     * producer at a path verified by a different secret; listing it among the `/ingest` paths
+     * would do the same to that family's 410. An outbox relay retries a 401 for ever, so either
+     * mistake is silent in the consumer and permanent in the producer.
+     */
+    assert.ok(!('wallet' in SPLIT_EVENT_PATHS), 'wallet is not part of the /v1/events family')
+    assert.ok(
+      !Object.values(SPLIT_EVENT_PATHS).includes(WALLET_EVENTS),
+      'and its path must not appear there under another module’s name',
+    )
+    assert.ok(!INGEST_PATHS.includes(WALLET_EVENTS), 'nor among the /ingest family')
+    // The three families are disjoint by PREFIX, not merely by membership: `/events` is not under
+    // `/v1/events/` and not under `/ingest/`, so no future entry in either list can collide here.
+    assert.ok(!WALLET_EVENTS.startsWith(`${EVENTS_PATH}/`))
+    assert.ok(!WALLET_EVENTS.startsWith('/ingest'))
+  })
+})
+
+describe('WAVE M5d: admin moves TWO families and keeps twenty-six paths bare', () => {
+  /*
+   * ══════════════════════════════════════════════════════════════════════════════════════════
+   * The third shape in this wave, and the one that is neither hub's nor wallet's.
+   *
+   * hub moved everything. wallet moved nothing. admin moves exactly what collides and not one
+   * path more, and the reason is that a gateway rewrite cannot reach every caller: billing calls
+   * `GET /v1/engagement/policies` service-to-service by service name, bypassing the gateway
+   * entirely, so a blanket remount would break it silently — billing would get the host's 404 and
+   * fall back to its defaults, which look exactly like a policy that says what the defaults say.
+   * ══════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const pathsOf = (name: string): Set<string> =>
+    new Set(TABLES.find(([n]) => n === name)![1].map(asString))
+
+  it('the five operator world controls remount under /v1/operator', () => {
+    const a = pathsOf('admin')
+    for (const moved of [
+      'GET /v1/operator/worlds',
+      'POST /v1/operator/worlds',
+      'POST /v1/operator/worlds/:id/start',
+      'POST /v1/operator/worlds/:id/tick',
+      'PUT /v1/operator/worlds/:id/bots',
+    ]) {
+      assert.ok(a.has(moved), `admin serves ${moved}`)
+    }
+    for (const bare of ['GET /v1/worlds', 'POST /v1/worlds']) {
+      assert.ok(!a.has(bare), `admin must not keep ${bare} — it is nda's public surface`)
+    }
+    assert.equal(ADMIN_REMOUNTS['/v1/worlds'], `${ADMIN_OPERATOR_PREFIX}/worlds`)
+    // FOUR keys, FIVE routes: the map is keyed by PATH, and `/v1/worlds` is both a GET and a POST.
+    assert.equal(Object.keys(ADMIN_REMOUNTS).length, 4)
+    for (const [from, to] of Object.entries(ADMIN_REMOUNTS)) {
+      assert.equal(to, from.replace('/v1/', `${ADMIN_OPERATOR_PREFIX}/`), `${from} must map by prefix alone`)
+      assert.ok(from.startsWith('/v1/worlds'), `${from} is not a world control and must not move`)
+    }
+  })
+
+  it('and `/v1/engagement/policies` STAYS BARE, because billing dials it by service name', () => {
+    /*
+     * `billing/adminapi.ts` calls exactly this path with scope `admin:read` over HTTP. It is the
+     * one call in the estate that reaches this module without passing a gateway, so it is the one
+     * that a path rewrite cannot follow. If this assertion ever goes red, check what moved it and
+     * what in billing was changed to match — a remount here without that is a silent fallback to
+     * billing's built-in defaults.
+     */
+    const a = pathsOf('admin')
+    assert.ok(a.has('GET /v1/engagement/policies'), 'billing reaches this path directly')
+    assert.ok(a.has('PUT /v1/engagement/policies/:service'))
+  })
+
+  it('and the two exchange-desk paths are WALLET’s, which admin never declared', () => {
+    // The reason admin is not namespaced under `/v1/admin`: wallet already owns that prefix for
+    // the conversion desk, and wallet is the module whose paths cannot move. Asserted so the
+    // "blanket /v1/admin remount" idea cannot be re-derived without meeting the thing that killed
+    // it — a money route it would have shadowed.
+    const w = pathsOf('wallet')
+    const a = pathsOf('admin')
+    assert.ok(w.has('GET /v1/admin/exchange-desk'), 'wallet owns the desk read')
+    assert.ok(w.has('POST /v1/admin/exchange-desk/funding'), 'and the desk funding write')
+    assert.ok(!a.has('GET /v1/admin/exchange-desk'), 'admin declares neither')
+    for (const entry of TABLES.find(([n]) => n === 'admin')![1]) {
+      assert.ok(
+        !entry.path.startsWith('/v1/admin/'),
+        `${entry.path} is under /v1/admin, which is wallet's — see REMOUNTED_PATHS in admin/server.ts`,
+      )
+    }
+  })
+})
+
+describe('WAVE M5d: aetherholm’s two FROZEN contract paths, and the wave M3 refused over them', () => {
+  /*
+   * ══════════════════════════════════════════════════════════════════════════════════════════
+   * `emberkin/index.ts`'s header refused tessera into that process on exactly this ground:
+   *
+   *   > `GET /v1/title` and `POST /v1/provision` are frozen constants in
+   *   > `@cloudsforge/contracts-worlds`, and BOTH aetherholm and tessera mount them. Matching is
+   *   > first-wins, so in one process the second title's descriptor and provision handler are
+   *   > simply dead — and `worlds` provisioning a paid tessera ward would be answered, with a 200,
+   *   > by aetherholm.
+   *
+   * Wave M5d puts them in one process anyway: tessera has been a module of agora since M5b. So the
+   * fix exists now, and it needs no contracts change — `worlds/titleclient.ts` computes a title's
+   * address from its REGISTERED BASE URL plus the frozen suffix, so a title registered at
+   * `http://agora:4000/aetherholm` is asked `/aetherholm/v1/title`.
+   *
+   * THE DEPLOY HALF IS NOT OPTIONAL. Left at an origin-only base URL, `worlds` asks `/v1/title`,
+   * tessera answers, and a player who paid for an archipelago is provisioned a ward. These cases
+   * assert the split in the route table; only the registry row can make it true at run time.
+   * ══════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const pathsOf = (name: string): Set<string> =>
+    new Set(TABLES.find(([n]) => n === name)![1].map(asString))
+
+  it('tessera keeps both bare, because it is the title worlds addresses at a bare origin', () => {
+    const t = pathsOf('tessera')
+    assert.ok(t.has('GET /v1/title'), 'the title descriptor stays on its frozen contract path')
+    assert.ok(t.has('POST /v1/provision'), 'provisioning stays on its frozen contract path')
+  })
+
+  it('and aetherholm serves them under /aetherholm, which is a base URL and not a new contract', () => {
+    const a = pathsOf('aetherholm')
+    assert.ok(!a.has('GET /v1/title'), 'aetherholm must not shadow tessera’s descriptor')
+    assert.ok(!a.has('POST /v1/provision'), 'nor its provision handler — that is a paid purchase')
+    assert.ok(a.has(`GET ${AETHERHOLM_PREFIX}/v1/title`))
+    assert.ok(a.has(`POST ${AETHERHOLM_PREFIX}/v1/provision`))
+    // The map is derived from the frozen constants, so the SUFFIX worlds appends is unchanged and
+    // only the prefix is new. A hand-written literal here could drift from the contract silently.
+    assert.deepEqual(AETHERHOLM_REMOUNTS, {
+      '/v1/title': `${AETHERHOLM_PREFIX}/v1/title`,
+      '/v1/provision': `${AETHERHOLM_PREFIX}/v1/provision`,
+    })
+    for (const [from, to] of Object.entries(AETHERHOLM_REMOUNTS)) {
+      assert.equal(to, `${AETHERHOLM_PREFIX}${from}`, 'the remount is a prefix and nothing else')
+    }
+  })
+
+  it('nda keeps /v1/worlds bare, because it is the public owner on api.<apex>', () => {
+    // `cf-api-nda` routes the whole of `/v1/worlds` at it, and that prefix is the ENTIRE public
+    // surface of *Ninety Days After*. admin's operator world controls are the ones that moved.
+    const n = pathsOf('nda')
+    const a = pathsOf('admin')
+    assert.ok(n.has('GET /v1/worlds'), 'nda keeps the public list')
+    assert.ok(!a.has('GET /v1/worlds'), 'admin’s remounted under /v1/operator')
+    assert.ok(a.has('GET /v1/operator/worlds'))
+  })
+
+  it('and the three titles’ webhook is ONE route, at emberkin’s suffixed path', () => {
+    // aetherholm and nda drop `POST /v1/events` and join emberkin's through `inbound`. Asserted
+    // because the alternative — three suffixed webhooks — would be three signature checks against
+    // one key, and an `identity.user.deleted` that reached one title and not the others.
+    assert.ok(pathsOf('emberkin').has(`POST ${EMBERKIN_EVENTS}`), 'emberkin serves the one webhook')
+    for (const title of ['aetherholm', 'nda']) {
+      const own = pathsOf(title)
+      assert.ok(![...own].some((e) => e.includes('/v1/events')), `${title} mounts no webhook of its own`)
+      assert.ok(!(title in SPLIT_EVENT_PATHS), `${title} must not appear in the split`)
+    }
+  })
+})
+
+describe('the twelve webhook paths, which are the only split routes in the process', () => {
   it('every module that ingests events gets its own suffixed path, and no two are the same', () => {
     const paths = [
       AGORA_EVENTS,
@@ -393,6 +794,9 @@ describe('the nine webhook paths, which are the only split routes in the process
       MINT_EVENTS,
       WORLDS_EVENTS,
       TESSERA_EVENTS,
+      TRADE_EVENTS,
+      ADMIN_EVENTS,
+      EMBERKIN_EVENTS,
     ]
     assert.equal(new Set(paths).size, paths.length, `two modules serve one webhook path: ${paths.join(', ')}`)
     for (const path of paths) {
@@ -401,7 +805,7 @@ describe('the nine webhook paths, which are the only split routes in the process
     }
   })
 
-  it('and the host’s 410 body names exactly those nine, with no literal left behind', () => {
+  it('and the host’s 410 body names exactly those twelve, with no literal left behind', () => {
     // `SPLIT_EVENT_PATHS` is written as literals in `server.ts`; this is the check that keeps them
     // honest — a module that renamed its path and left the host's table behind is red here.
     assert.deepEqual(SPLIT_EVENT_PATHS, {
@@ -414,14 +818,22 @@ describe('the nine webhook paths, which are the only split routes in the process
       mint: MINT_EVENTS,
       worlds: WORLDS_EVENTS,
       tessera: TESSERA_EVENTS,
+      trade: TRADE_EVENTS,
+      'admin-api': ADMIN_EVENTS,
+      emberkin: EMBERKIN_EVENTS,
     })
   })
 
-  it('and the three modules with no webhook are absent from the split, which is a claim', () => {
+  it('and the four modules with no webhook are absent from the split, which is a claim', () => {
     // pricing, studio and foresight consume nothing: no `/v1/events`, no inbox delivery path.
-    // Listing them in the 410 body would send a producer at a route that does not exist.
-    assert.equal(Object.keys(SPLIT_EVENT_PATHS).sort().join(','), 'agora,billing,community,devplatform,market,mint,policy,tessera,worlds')
-    for (const name of ['pricing', 'studio', 'foresight']) {
+    // hub joins them in wave M5d for a reason of its own — it is a backend-for-frontend, so it
+    // holds no inbox to deliver INTO. Listing any of them in the 410 body would send a producer at
+    // a route that does not exist, and an outbox relay retries a 404 for ever.
+    assert.equal(
+      Object.keys(SPLIT_EVENT_PATHS).sort().join(','),
+      'admin-api,agora,billing,community,devplatform,emberkin,market,mint,policy,tessera,trade,worlds',
+    )
+    for (const name of ['pricing', 'studio', 'foresight', 'hub']) {
       const entries = TABLES.find(([n]) => n === name)![1].map(asString)
       assert.ok(!entries.some((e) => e.endsWith(EVENTS_PATH)), `${name} has no webhook`)
       assert.ok(!(name in SPLIT_EVENT_PATHS), `${name} must not be in the split`)

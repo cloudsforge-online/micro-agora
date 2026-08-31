@@ -1,0 +1,1090 @@
+[
+  {
+    "name": "wild_flarelynx_vs_seedling_s99",
+    "seed": "99",
+    "player": {
+      "name": "Warden",
+      "isWild": false,
+      "party": [
+        {
+          "species": "flarelynx",
+          "level": 25
+        }
+      ]
+    },
+    "enemy": {
+      "name": "Wild",
+      "isWild": true,
+      "party": [
+        {
+          "species": "seedling",
+          "level": 22
+        }
+      ]
+    },
+    "script": [],
+    "maxTurns": 100,
+    "log": [
+      "A wild Seedling appears!",
+      "Go, Flarelynx!",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s super effective!",
+      "Seedling took 42 damage. (14/56 HP)",
+      "Seedling used Solar Bloom!",
+      "It\u0027s not very effective...",
+      "Flarelynx took 10 damage. (63/73 HP)",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s super effective!",
+      "Seedling took 14 damage. (0/56 HP)",
+      "Seedling fainted!"
+    ],
+    "outcome": "PlayerWin",
+    "turns": 2,
+    "finalPlayer": [
+      {
+        "species": "flarelynx",
+        "nickname": "Flarelynx",
+        "level": 25,
+        "resonance": 3,
+        "temperament": 39,
+        "sync": 50,
+        "currentHp": 63,
+        "maxHp": 73,
+        "status": "None",
+        "moves": [
+          "ember_scratch",
+          "flame_fang",
+          "howl"
+        ]
+      }
+    ],
+    "finalEnemy": [
+      {
+        "species": "seedling",
+        "nickname": "Seedling",
+        "level": 22,
+        "resonance": 0,
+        "temperament": -6,
+        "sync": 8,
+        "currentHp": 0,
+        "maxHp": 56,
+        "status": "None",
+        "moves": [
+          "leech_vine",
+          "leaf_blade",
+          "mend",
+          "solar_bloom"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "wild_flarelynx_vs_seedling_s1234",
+    "seed": "1234",
+    "player": {
+      "name": "Warden",
+      "isWild": false,
+      "party": [
+        {
+          "species": "flarelynx",
+          "level": 25
+        }
+      ]
+    },
+    "enemy": {
+      "name": "Wild",
+      "isWild": true,
+      "party": [
+        {
+          "species": "seedling",
+          "level": 22
+        }
+      ]
+    },
+    "script": [],
+    "maxTurns": 100,
+    "log": [
+      "A wild Seedling appears!",
+      "Go, Flarelynx!",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s super effective!",
+      "Seedling took 42 damage. (13/55 HP)",
+      "Seedling used Solar Bloom!",
+      "It\u0027s not very effective...",
+      "Flarelynx took 8 damage. (64/72 HP)",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s super effective!",
+      "Seedling took 13 damage. (0/55 HP)",
+      "Seedling fainted!"
+    ],
+    "outcome": "PlayerWin",
+    "turns": 2,
+    "finalPlayer": [
+      {
+        "species": "flarelynx",
+        "nickname": "Flarelynx",
+        "level": 25,
+        "resonance": 3,
+        "temperament": 39,
+        "sync": 50,
+        "currentHp": 64,
+        "maxHp": 72,
+        "status": "None",
+        "moves": [
+          "ember_scratch",
+          "flame_fang",
+          "howl"
+        ]
+      }
+    ],
+    "finalEnemy": [
+      {
+        "species": "seedling",
+        "nickname": "Seedling",
+        "level": 22,
+        "resonance": 0,
+        "temperament": -6,
+        "sync": 8,
+        "currentHp": 0,
+        "maxHp": 55,
+        "status": "None",
+        "moves": [
+          "leech_vine",
+          "leaf_blade",
+          "mend",
+          "solar_bloom"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "art_cinderpyre_vs_cragmaw",
+    "seed": "77",
+    "player": {
+      "name": "Warden",
+      "isWild": false,
+      "party": [
+        {
+          "species": "cinderpyre",
+          "level": 40,
+          "resonance": 60,
+          "temperament": 40,
+          "nickname": "Blaze"
+        }
+      ]
+    },
+    "enemy": {
+      "name": "Wild",
+      "isWild": true,
+      "party": [
+        {
+          "species": "cragmaw",
+          "level": 35
+        }
+      ]
+    },
+    "script": [
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "art"
+      },
+      {
+        "kind": "art"
+      },
+      {
+        "kind": "art"
+      },
+      {
+        "kind": "art"
+      }
+    ],
+    "maxTurns": 60,
+    "log": [
+      "A wild Cragmaw appears!",
+      "Go, Blaze!",
+      "Blaze used Ember Scratch!",
+      "It\u0027s not very effective...",
+      "Cragmaw took 8 damage. (102/110 HP)",
+      "Cragmaw used Reckless Charge!",
+      "It\u0027s super effective!",
+      "Blaze took 93 damage. (13/106 HP)",
+      "Cragmaw is hit with 23 recoil.",
+      "Blaze used Ember Scratch!",
+      "It\u0027s not very effective...",
+      "Cragmaw took 7 damage. (72/110 HP)",
+      "Cragmaw used Reckless Charge!",
+      "It\u0027s super effective!",
+      "Blaze took 13 damage. (0/106 HP)",
+      "Cragmaw is hit with 3 recoil.",
+      "Blaze fainted!"
+    ],
+    "outcome": "EnemyWin",
+    "turns": 2,
+    "finalPlayer": [
+      {
+        "species": "cinderpyre",
+        "nickname": "Blaze",
+        "level": 40,
+        "resonance": 60,
+        "temperament": 44,
+        "sync": 16,
+        "currentHp": 0,
+        "maxHp": 106,
+        "status": "None",
+        "moves": [
+          "ember_scratch",
+          "howl",
+          "flame_fang",
+          "pyroblast"
+        ]
+      }
+    ],
+    "finalEnemy": [
+      {
+        "species": "cragmaw",
+        "nickname": "Cragmaw",
+        "level": 35,
+        "resonance": 0,
+        "temperament": 9,
+        "sync": 50,
+        "currentHp": 69,
+        "maxHp": 110,
+        "status": "None",
+        "moves": [
+          "stone_edge",
+          "guard",
+          "quake",
+          "reckless_charge"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "perfect_res_free_art",
+    "seed": "555",
+    "player": {
+      "name": "Warden",
+      "isWild": false,
+      "party": [
+        {
+          "species": "flarelynx",
+          "level": 45,
+          "resonance": 100,
+          "temperament": 60
+        }
+      ]
+    },
+    "enemy": {
+      "name": "Wild",
+      "isWild": true,
+      "party": [
+        {
+          "species": "bramblejaw",
+          "level": 40
+        }
+      ]
+    },
+    "script": [
+      {
+        "kind": "art"
+      },
+      {
+        "kind": "art"
+      },
+      {
+        "kind": "art"
+      },
+      {
+        "kind": "art"
+      },
+      {
+        "kind": "art"
+      }
+    ],
+    "maxTurns": 60,
+    "log": [
+      "A wild Bramblejaw appears!",
+      "Go, Flarelynx!",
+      "\u2726 Flarelynx channels its Resonance Art \u2014 Cinder Nova!",
+      "It\u0027s super effective!",
+      "Bramblejaw took 118 damage. (0/118 HP)",
+      "Bramblejaw fainted!"
+    ],
+    "outcome": "PlayerWin",
+    "turns": 1,
+    "finalPlayer": [
+      {
+        "species": "flarelynx",
+        "nickname": "Flarelynx",
+        "level": 45,
+        "resonance": 100,
+        "temperament": 62,
+        "sync": 25,
+        "currentHp": 133,
+        "maxHp": 133,
+        "status": "None",
+        "moves": [
+          "ember_scratch",
+          "flame_fang",
+          "howl",
+          "pyroblast"
+        ]
+      }
+    ],
+    "finalEnemy": [
+      {
+        "species": "bramblejaw",
+        "nickname": "Bramblejaw",
+        "level": 40,
+        "resonance": 0,
+        "temperament": 35,
+        "sync": 0,
+        "currentHp": 0,
+        "maxHp": 118,
+        "status": "None",
+        "moves": [
+          "leaf_blade",
+          "leech_vine",
+          "entangle",
+          "solar_bloom"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "catch_joltmouse",
+    "seed": "8",
+    "player": {
+      "name": "Warden",
+      "isWild": false,
+      "party": [
+        {
+          "species": "cindercub",
+          "level": 6
+        }
+      ]
+    },
+    "enemy": {
+      "name": "Wild",
+      "isWild": true,
+      "party": [
+        {
+          "species": "joltmouse",
+          "level": 9
+        }
+      ]
+    },
+    "script": [
+      {
+        "kind": "catch",
+        "item": "resonator"
+      },
+      {
+        "kind": "catch",
+        "item": "greater_resonator"
+      },
+      {
+        "kind": "catch",
+        "item": "master_resonator"
+      },
+      {
+        "kind": "catch",
+        "item": "master_resonator"
+      }
+    ],
+    "maxTurns": 40,
+    "log": [
+      "A wild Joltmouse appears!",
+      "Go, Cindercub!",
+      "You hurl a Resonator...",
+      ".. it broke free!",
+      "Joltmouse used Static Field!",
+      "Cindercub is now Shock!",
+      "You hurl a Greater Resonator...",
+      "... click!",
+      "Gotcha! Joltmouse resonates with you now."
+    ],
+    "outcome": "Caught",
+    "turns": 2,
+    "finalPlayer": [
+      {
+        "species": "cindercub",
+        "nickname": "Cindercub",
+        "level": 6,
+        "resonance": 0,
+        "temperament": 10,
+        "sync": 0,
+        "currentHp": 21,
+        "maxHp": 21,
+        "status": "Shock",
+        "moves": [
+          "ember_scratch",
+          "howl"
+        ]
+      }
+    ],
+    "finalEnemy": [
+      {
+        "species": "joltmouse",
+        "nickname": "Joltmouse",
+        "level": 9,
+        "resonance": 10,
+        "temperament": 18,
+        "sync": 10,
+        "currentHp": 26,
+        "maxHp": 26,
+        "status": "None",
+        "moves": [
+          "spark_shot",
+          "static_field"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "flee_attempts",
+    "seed": "31",
+    "player": {
+      "name": "Warden",
+      "isWild": false,
+      "party": [
+        {
+          "species": "cindercub",
+          "level": 10
+        }
+      ]
+    },
+    "enemy": {
+      "name": "Wild",
+      "isWild": true,
+      "party": [
+        {
+          "species": "cragmaw",
+          "level": 12
+        }
+      ]
+    },
+    "script": [
+      {
+        "kind": "flee"
+      },
+      {
+        "kind": "flee"
+      },
+      {
+        "kind": "flee"
+      },
+      {
+        "kind": "flee"
+      }
+    ],
+    "maxTurns": 40,
+    "log": [
+      "A wild Cragmaw appears!",
+      "Go, Cindercub!",
+      "Got away safely!"
+    ],
+    "outcome": "Fled",
+    "turns": 1,
+    "finalPlayer": [
+      {
+        "species": "cindercub",
+        "nickname": "Cindercub",
+        "level": 10,
+        "resonance": 0,
+        "temperament": 10,
+        "sync": 0,
+        "currentHp": 29,
+        "maxHp": 29,
+        "status": "None",
+        "moves": [
+          "ember_scratch",
+          "howl",
+          "flame_fang"
+        ]
+      }
+    ],
+    "finalEnemy": [
+      {
+        "species": "cragmaw",
+        "nickname": "Cragmaw",
+        "level": 12,
+        "resonance": 0,
+        "temperament": 5,
+        "sync": 0,
+        "currentHp": 44,
+        "maxHp": 44,
+        "status": "None",
+        "moves": [
+          "rock_toss",
+          "stone_edge"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "warden_battle_switch",
+    "seed": "2024",
+    "player": {
+      "name": "Warden",
+      "isWild": false,
+      "party": [
+        {
+          "species": "flarelynx",
+          "level": 30
+        },
+        {
+          "species": "tidepup",
+          "level": 28
+        }
+      ]
+    },
+    "enemy": {
+      "name": "Torch Halvo",
+      "isWild": false,
+      "party": [
+        {
+          "species": "coalcrawl",
+          "level": 28
+        },
+        {
+          "species": "cinderpyre",
+          "level": 30
+        }
+      ]
+    },
+    "script": [
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "switch",
+        "index": 1
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      }
+    ],
+    "maxTurns": 80,
+    "log": [
+      "Torch Halvo sends out Coalcrawl!",
+      "Go, Flarelynx!",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s not very effective...",
+      "Coalcrawl took 11 damage. (56/67 HP)",
+      "Coalcrawl used Pyroblast!",
+      "Coalcrawl\u0027s attack missed!",
+      "Warden withdrew Flarelynx and sent out Tidepup!",
+      "Coalcrawl used Pyroblast!",
+      "It\u0027s not very effective...",
+      "Tidepup took 12 damage. (57/69 HP)",
+      "Coalcrawl used Pyroblast!",
+      "It\u0027s not very effective...",
+      "Tidepup took 12 damage. (45/69 HP)",
+      "Tidepup used Water Jet!",
+      "It\u0027s super effective!",
+      "Coalcrawl took 32 damage. (24/67 HP)",
+      "Coalcrawl used Pyroblast!",
+      "It\u0027s not very effective...",
+      "Tidepup took 12 damage. (33/69 HP)",
+      "Tidepup used Water Jet!",
+      "It\u0027s super effective!",
+      "Coalcrawl took 24 damage. (0/67 HP)",
+      "Coalcrawl fainted!",
+      "Torch Halvo sends out Cinderpyre!",
+      "Cinderpyre used Pyroblast!",
+      "It\u0027s not very effective...",
+      "Tidepup took 18 damage. (15/69 HP)",
+      "Tidepup used Water Jet!",
+      "It\u0027s super effective!",
+      "Cinderpyre took 27 damage. (51/78 HP)",
+      "Cinderpyre used Pyroblast!",
+      "It\u0027s not very effective...",
+      "Tidepup took 15 damage. (0/69 HP)",
+      "Tidepup fainted!",
+      "Warden sends out Flarelynx!",
+      "Flarelynx used Water Jet!",
+      "It\u0027s super effective!",
+      "Cinderpyre took 34 damage. (17/78 HP)",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s not very effective...",
+      "Cinderpyre took 11 damage. (6/78 HP)",
+      "Cinderpyre used Pyroblast!",
+      "It\u0027s not very effective...",
+      "Flarelynx took 15 damage. (69/84 HP)",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s not very effective...",
+      "Cinderpyre took 6 damage. (0/78 HP)",
+      "Cinderpyre fainted!"
+    ],
+    "outcome": "PlayerWin",
+    "turns": 8,
+    "finalPlayer": [
+      {
+        "species": "flarelynx",
+        "nickname": "Flarelynx",
+        "level": 30,
+        "resonance": 3,
+        "temperament": 43,
+        "sync": 49,
+        "currentHp": 69,
+        "maxHp": 84,
+        "status": "None",
+        "moves": [
+          "ember_scratch",
+          "flame_fang",
+          "howl",
+          "pyroblast"
+        ]
+      },
+      {
+        "species": "tidepup",
+        "nickname": "Tidepup",
+        "level": 28,
+        "resonance": 0,
+        "temperament": 11,
+        "sync": 75,
+        "currentHp": 0,
+        "maxHp": 69,
+        "status": "None",
+        "moves": [
+          "water_jet",
+          "aqua_slash",
+          "tidal_crash"
+        ]
+      }
+    ],
+    "finalEnemy": [
+      {
+        "species": "coalcrawl",
+        "nickname": "Coalcrawl",
+        "level": 28,
+        "resonance": 0,
+        "temperament": 20,
+        "sync": 27,
+        "currentHp": 0,
+        "maxHp": 67,
+        "status": "None",
+        "moves": [
+          "ember_scratch",
+          "howl",
+          "flame_fang",
+          "pyroblast"
+        ]
+      },
+      {
+        "species": "cinderpyre",
+        "nickname": "Cinderpyre",
+        "level": 30,
+        "resonance": 0,
+        "temperament": 24,
+        "sync": 24,
+        "currentHp": 0,
+        "maxHp": 78,
+        "status": "None",
+        "moves": [
+          "ember_scratch",
+          "howl",
+          "flame_fang",
+          "pyroblast"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "item_heal_battle",
+    "seed": "404",
+    "player": {
+      "name": "Warden",
+      "isWild": false,
+      "party": [
+        {
+          "species": "cragmaw",
+          "level": 30
+        }
+      ]
+    },
+    "enemy": {
+      "name": "Wild",
+      "isWild": true,
+      "party": [
+        {
+          "species": "flarelynx",
+          "level": 30
+        }
+      ]
+    },
+    "script": [
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "item",
+        "item": "super_potion"
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      },
+      {
+        "kind": "move",
+        "slot": 0
+      }
+    ],
+    "maxTurns": 80,
+    "log": [
+      "A wild Flarelynx appears!",
+      "Go, Cragmaw!",
+      "Flarelynx used Pyroblast!",
+      "It\u0027s not very effective...",
+      "Cragmaw took 16 damage. (80/96 HP)",
+      "Cragmaw is now Burn!",
+      "Cragmaw used Stone Edge!",
+      "It\u0027s super effective!",
+      "Flarelynx took 40 damage. (44/84 HP)",
+      "Cragmaw is hurt by its burn (6).",
+      "Flarelynx used Pyroblast!",
+      "It\u0027s not very effective...",
+      "Cragmaw took 18 damage. (56/96 HP)",
+      "Cragmaw used Stone Edge!",
+      "It\u0027s super effective!",
+      "Flarelynx took 37 damage. (7/84 HP)",
+      "Cragmaw is hurt by its burn (6).",
+      "Warden used Super Potion. Cragmaw recovered 46 HP.",
+      "Flarelynx used Pyroblast!",
+      "It\u0027s not very effective...",
+      "Cragmaw took 16 damage. (80/96 HP)",
+      "Cragmaw is hurt by its burn (6).",
+      "Flarelynx used Pyroblast!",
+      "Flarelynx\u0027s attack missed!",
+      "Cragmaw used Stone Edge!",
+      "It\u0027s super effective!",
+      "Flarelynx took 7 damage. (0/84 HP)",
+      "Flarelynx fainted!"
+    ],
+    "outcome": "PlayerWin",
+    "turns": 4,
+    "finalPlayer": [
+      {
+        "species": "cragmaw",
+        "nickname": "Cragmaw",
+        "level": 30,
+        "resonance": 4,
+        "temperament": 11,
+        "sync": 75,
+        "currentHp": 74,
+        "maxHp": 96,
+        "status": "Burn",
+        "moves": [
+          "stone_edge",
+          "guard",
+          "quake",
+          "reckless_charge"
+        ]
+      }
+    ],
+    "finalEnemy": [
+      {
+        "species": "flarelynx",
+        "nickname": "Flarelynx",
+        "level": 30,
+        "resonance": 0,
+        "temperament": 43,
+        "sync": 27,
+        "currentHp": 0,
+        "maxHp": 84,
+        "status": "None",
+        "moves": [
+          "ember_scratch",
+          "flame_fang",
+          "howl",
+          "pyroblast"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "status_grind",
+    "seed": "13131",
+    "player": {
+      "name": "Warden",
+      "isWild": false,
+      "party": [
+        {
+          "species": "tidepup",
+          "level": 30,
+          "resonance": 55
+        }
+      ]
+    },
+    "enemy": {
+      "name": "Wild",
+      "isWild": true,
+      "party": [
+        {
+          "species": "joltmouse",
+          "level": 30
+        }
+      ]
+    },
+    "script": [],
+    "maxTurns": 100,
+    "log": [
+      "A wild Joltmouse appears!",
+      "Go, Tidepup!",
+      "Joltmouse used Thunderclap!",
+      "It\u0027s super effective!",
+      "Tidepup took 48 damage. (27/75 HP)",
+      "Tidepup used Water Jet!",
+      "A critical hit!",
+      "It\u0027s not very effective...",
+      "Joltmouse took 16 damage. (51/67 HP)",
+      "Joltmouse used Thunderclap!",
+      "It\u0027s super effective!",
+      "Tidepup took 27 damage. (0/75 HP)",
+      "Tidepup fainted!"
+    ],
+    "outcome": "EnemyWin",
+    "turns": 2,
+    "finalPlayer": [
+      {
+        "species": "tidepup",
+        "nickname": "Tidepup",
+        "level": 30,
+        "resonance": 55,
+        "temperament": 7,
+        "sync": 8,
+        "currentHp": 0,
+        "maxHp": 75,
+        "status": "None",
+        "moves": [
+          "water_jet",
+          "aqua_slash",
+          "tidal_crash"
+        ]
+      }
+    ],
+    "finalEnemy": [
+      {
+        "species": "joltmouse",
+        "nickname": "Joltmouse",
+        "level": 30,
+        "resonance": 0,
+        "temperament": 24,
+        "sync": 50,
+        "currentHp": 51,
+        "maxHp": 67,
+        "status": "None",
+        "moves": [
+          "spark_shot",
+          "static_field",
+          "volt_fang",
+          "thunderclap"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "team_wipe",
+    "seed": "70707",
+    "player": {
+      "name": "Warden",
+      "isWild": false,
+      "party": [
+        {
+          "species": "flarelynx",
+          "level": 35
+        },
+        {
+          "species": "cragmaw",
+          "level": 33
+        }
+      ]
+    },
+    "enemy": {
+      "name": "Rival Kaine",
+      "isWild": false,
+      "party": [
+        {
+          "species": "bramblejaw",
+          "level": 34
+        },
+        {
+          "species": "tidepup",
+          "level": 33
+        }
+      ]
+    },
+    "script": [],
+    "maxTurns": 120,
+    "log": [
+      "Rival Kaine sends out Bramblejaw!",
+      "Go, Flarelynx!",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s super effective!",
+      "Bramblejaw took 34 damage. (70/104 HP)",
+      "Bramblejaw used Entangle!",
+      "Flarelynx is now Root!",
+      "Flarelynx is sapped by roots (12).",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s super effective!",
+      "Bramblejaw took 37 damage. (33/104 HP)",
+      "Bramblejaw used Entangle!",
+      "Flarelynx is sapped by roots (12).",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s super effective!",
+      "Bramblejaw took 33 damage. (0/104 HP)",
+      "Bramblejaw fainted!",
+      "Rival Kaine sends out Tidepup!",
+      "Tidepup used Entangle!",
+      "Tidepup\u0027s attack missed!",
+      "Flarelynx is sapped by roots (12).",
+      "Flarelynx used Ember Scratch!",
+      "It\u0027s not very effective...",
+      "Tidepup took 14 damage. (64/78 HP)",
+      "Tidepup used Tidal Crash!",
+      "It\u0027s super effective!",
+      "Flarelynx took 58 damage. (3/97 HP)",
+      "Flarelynx is sapped by roots (12).",
+      "Flarelynx fainted!",
+      "Warden sends out Cragmaw!",
+      "Cragmaw used Stone Edge!",
+      "It\u0027s not very effective...",
+      "Tidepup took 20 damage. (44/78 HP)",
+      "Tidepup used Tidal Crash!",
+      "It\u0027s super effective!",
+      "Cragmaw took 48 damage. (55/103 HP)",
+      "Cragmaw used Stone Edge!",
+      "It\u0027s not very effective...",
+      "Tidepup took 21 damage. (23/78 HP)",
+      "Tidepup used Tidal Crash!",
+      "It\u0027s super effective!",
+      "Cragmaw took 46 damage. (9/103 HP)",
+      "Cragmaw used Stone Edge!",
+      "Cragmaw\u0027s attack missed!",
+      "Tidepup used Tidal Crash!",
+      "It\u0027s super effective!",
+      "Cragmaw took 9 damage. (0/103 HP)",
+      "Cragmaw fainted!"
+    ],
+    "outcome": "EnemyWin",
+    "turns": 7,
+    "finalPlayer": [
+      {
+        "species": "flarelynx",
+        "nickname": "Flarelynx",
+        "level": 35,
+        "resonance": 0,
+        "temperament": 43,
+        "sync": 83,
+        "currentHp": 0,
+        "maxHp": 97,
+        "status": "Root",
+        "moves": [
+          "ember_scratch",
+          "flame_fang",
+          "howl",
+          "pyroblast"
+        ]
+      },
+      {
+        "species": "cragmaw",
+        "nickname": "Cragmaw",
+        "level": 33,
+        "resonance": 0,
+        "temperament": 11,
+        "sync": 19,
+        "currentHp": 0,
+        "maxHp": 103,
+        "status": "None",
+        "moves": [
+          "stone_edge",
+          "guard",
+          "quake",
+          "reckless_charge"
+        ]
+      }
+    ],
+    "finalEnemy": [
+      {
+        "species": "bramblejaw",
+        "nickname": "Bramblejaw",
+        "level": 34,
+        "resonance": 0,
+        "temperament": 31,
+        "sync": 20,
+        "currentHp": 0,
+        "maxHp": 104,
+        "status": "None",
+        "moves": [
+          "leaf_blade",
+          "leech_vine",
+          "entangle",
+          "solar_bloom"
+        ]
+      },
+      {
+        "species": "tidepup",
+        "nickname": "Tidepup",
+        "level": 33,
+        "resonance": 0,
+        "temperament": 11,
+        "sync": 100,
+        "currentHp": 23,
+        "maxHp": 78,
+        "status": "None",
+        "moves": [
+          "water_jet",
+          "aqua_slash",
+          "tidal_crash"
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "elements": ["ember", "tide", "verdant", "gale", "stone", "spark", "frost", "umbra", "lumen"],
+  "chart": {
+    "ember":   { "verdant": 2.0, "frost": 2.0, "umbra": 2.0, "tide": 0.5, "stone": 0.5, "ember": 0.5 },
+    "tide":    { "ember": 2.0, "stone": 2.0, "verdant": 0.5, "spark": 0.5, "tide": 0.5 },
+    "verdant": { "tide": 2.0, "stone": 2.0, "ember": 0.5, "gale": 0.5, "frost": 0.5, "verdant": 0.5 },
+    "gale":    { "verdant": 2.0, "spark": 0.5, "stone": 0.5, "frost": 0.5 },
+    "stone":   { "ember": 2.0, "spark": 2.0, "gale": 2.0, "frost": 2.0, "tide": 0.5, "verdant": 0.5 },
+    "spark":   { "tide": 2.0, "gale": 2.0, "stone": 0.5, "verdant": 0.5, "spark": 0.5 },
+    "frost":   { "verdant": 2.0, "gale": 2.0, "ember": 0.5, "stone": 0.5, "frost": 0.5 },
+    "umbra":   { "lumen": 2.0, "spark": 2.0, "ember": 0.5, "umbra": 0.5 },
+    "lumen":   { "umbra": 2.0, "stone": 2.0, "verdant": 0.5, "lumen": 0.5 }
+  }
+}

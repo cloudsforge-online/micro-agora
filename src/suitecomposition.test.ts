@@ -155,6 +155,32 @@ describe('no two modules’ harnesses can point at one database', () => {
    * Read from source rather than imported: importing sixteen harnesses would open nothing, but it
    * would also mean this check could only see the modules whose harness happened to load.
    */
+  /**
+   * The modules of this process that own no database — by directory prefix, as `walk` spells it.
+   *
+   * ONE, and it arrived in wave M5d. hub is a backend-for-frontend: it composes seven peers on
+   * behalf of a signed-in person and holds no table, so there is no `HUB_DATABASE_URL`, no pool,
+   * no migration, no schema to assert and therefore no test DSN for its harness to name. Every
+   * assertion below that says "one harness per module, one variable each" is about modules that
+   * HAVE one; this set is how that stays a statement rather than an exception nobody wrote down.
+   */
+  const DATABASELESS: ReadonlySet<string> = new Set(['hub/'])
+
+  /**
+   * Where a module's DIRECTORY name and its SERVICE name differ, by directory prefix.
+   *
+   * ONE entry, and it is a fact about the estate rather than about this file. The directory is
+   * `admin/` — it matches `MODULE_LABEL`, the job-metric label and the route namespace — while the
+   * service, its container, its `SERVICE` constant, its `event_subscriptions` rows and every
+   * environment variable the deploy sets are all `admin-api`. Renaming the variable to match the
+   * directory would mean renaming `ADMIN_API_DATABASE_URL` across the secrets, the compose file
+   * and the k8s manifests to make a test's derivation simpler, which is the tail wagging the dog.
+   *
+   * Named here rather than exempted, so the check below still runs on it: `admin/testsupport.ts`
+   * must read `ADMIN_API_TEST_DATABASE_URL` and no other module's.
+   */
+  const VARIABLE_PREFIX: Readonly<Record<string, string>> = Object.freeze({ 'admin/': 'ADMIN_API' })
+
   function harnesses(): ReadonlyArray<readonly [string, string]> {
     const out: Array<readonly [string, string]> = []
     const walk = (dir: string, prefix: string): void => {
@@ -166,6 +192,20 @@ describe('no two modules’ harnesses can point at one database', () => {
         if (entry.name !== 'testsupport.ts') continue
         const source = readFileSync(`${dir}${entry.name}`, 'utf8')
         const named = [...source.matchAll(/'([A-Z][A-Z0-9_]*_TEST_DATABASE_URL)'/g)].map((m) => m[1]!)
+        if (DATABASELESS.has(prefix)) {
+          // Named rather than skipped-if-absent, which would turn "this module has no database"
+          // into "this module's harness lost its DSN" and pass either way. The assertion runs in
+          // the OTHER direction here: a module on this list that GAINS a DSN is a module that
+          // gained a database, and that is a decision, not a refactor.
+          assert.equal(
+            named.length,
+            0,
+            `${prefix}testsupport.ts names a test DSN, but ${prefix.replace(/\/$/, '')} is declared ` +
+              'database-less. Adding a database to it means adding a pool, a migration target, a ' +
+              'schema assertion and a postgres probe — take it off DATABASELESS deliberately.',
+          )
+          continue
+        }
         assert.ok(named.length > 0, `${prefix}testsupport.ts names no test DSN variable`)
         assert.equal(
           new Set(named).size,
@@ -179,7 +219,7 @@ describe('no two modules’ harnesses can point at one database', () => {
     return out.sort((a, b) => a[0].localeCompare(b[0]))
   }
 
-  it('sixteen harnesses, sixteen different variables', () => {
+  it('twenty-two harnesses, twenty-two different variables', () => {
     const found = harnesses()
     const vars = found.map(([, name]) => name)
     assert.equal(
@@ -188,8 +228,11 @@ describe('no two modules’ harnesses can point at one database', () => {
       'two modules read one test DSN variable, so one module’s reset truncates the other’s rows ' +
         `mid-file: ${found.map(([file, name]) => `${file} → ${name}`).join(', ')}`,
     )
-    // One per module, and the module list is the one `src/index.ts` builds.
-    assert.equal(found.length, 16, `expected sixteen harnesses, found ${found.length}`)
+    // One per module WITH A DATABASE. `src/index.ts` builds twenty-three; hub is the one that
+    // owns no table, and `DATABASELESS` above is where that is stated rather than inferred from a
+    // count that happens not to line up. Nineteen factory calls, because emberkin's brings two
+    // nested titles with it — each of which has a harness and a database of its own.
+    assert.equal(found.length, 22, `expected twenty-two harnesses, found ${found.length}`)
   })
 
   it('and each names the variable its own module owns', () => {
@@ -199,7 +242,8 @@ describe('no two modules’ harnesses can point at one database', () => {
       const at = file.lastIndexOf('/')
       // The host module's own harness is `src/testsupport.ts`, with no directory at all.
       const dir = at === -1 ? '' : file.slice(0, at)
-      const owner = (dir === '' ? 'agora' : dir.slice(dir.lastIndexOf('/') + 1)).toUpperCase()
+      const owner =
+        VARIABLE_PREFIX[`${dir}/`] ?? (dir === '' ? 'agora' : dir.slice(dir.lastIndexOf('/') + 1)).toUpperCase()
       assert.equal(name, `${owner}_TEST_DATABASE_URL`, `${file} reads ${name}, which is not its own`)
     }
   })
@@ -228,7 +272,7 @@ describe('the detector is looking at real files', () => {
    * The vacuous-green guards. Every assertion above is "this set is empty", and an empty set is
    * also what a walker that has stopped finding files reports.
    */
-  it('finds the test files, in all sixteen modules', () => {
+  it('finds the test files, in all twenty-three modules', () => {
     const files = testFiles()
     assert.ok(files.length > 200, `expected the whole suite, found ${files.length} files`)
     for (const expected of [
@@ -238,6 +282,14 @@ describe('the detector is looking at real files', () => {
       'activity/notify/pipeline.test.ts',
       'lantern/privacyboundary.test.ts',
       'lantern/analytics/pseudonym.test.ts',
+      // Wave M5d. Named here because hub is absent from the harness walk above — it has no test
+      // DSN to be counted by — so this is the only place its suites are proved to be scanned.
+      'hub/server.test.ts',
+      'hub/network.test.ts',
+      // The nested titles, named because a walker that stopped one directory short would still
+      // find `emberkin/*.test.ts` and report a plausible total.
+      'emberkin/aetherholm/world.test.ts',
+      'emberkin/nda/domain.test.ts',
     ]) {
       assert.ok(files.includes(expected), `src/${expected} is not in the scanned set`)
     }

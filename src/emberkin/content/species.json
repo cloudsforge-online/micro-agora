@@ -1,0 +1,1135 @@
+[
+  {
+    "id": "cindercub",
+    "dexNumber": 1,
+    "name": "Cindercub",
+    "types": ["ember"],
+    "category": "Ember Cub Kin",
+    "baseStats": { "hp": 45, "attack": 58, "defense": 42, "spatk": 52, "spdef": 40, "speed": 63 },
+    "catchRate": 45,
+    "growthRate": "medium",
+    "temperamentBias": 10,
+    "learnset": [
+      { "level": 1, "move": "ember_scratch" },
+      { "level": 5, "move": "howl" },
+      { "level": 10, "move": "flame_fang" },
+      { "level": 16, "move": "flame_fang" },
+      { "level": 22, "move": "pyroblast" }
+    ],
+    "resonanceArt": "cinder_nova",
+    "evolutions": [
+      { "into": "cinderpyre", "requires": { "resonance": 40 } }
+    ],
+    "lore": "A cub whose fur smoulders when it feels safe. When startled it sneezes little bursts of sparks."
+  },
+  {
+    "id": "cinderpyre",
+    "dexNumber": 2,
+    "name": "Cinderpyre",
+    "types": ["ember"],
+    "category": "Kindled Beast Kin",
+    "baseStats": { "hp": 60, "attack": 75, "defense": 55, "spatk": 68, "spdef": 55, "speed": 87 },
+    "catchRate": 45,
+    "growthRate": "medium",
+    "temperamentBias": 18,
+    "learnset": [
+      { "level": 1, "move": "ember_scratch" },
+      { "level": 7, "move": "howl" },
+      { "level": 13, "move": "flame_fang" },
+      { "level": 20, "move": "pyroblast" },
+      { "level": 28, "move": "flame_fang" },
+      { "level": 34, "move": "pyroblast" }
+    ],
+    "resonanceArt": "cinder_nova",
+    "evolutions": [
+      { "into": "flarelynx", "requires": { "resonance": 75, "temperamentMin": 30 }, "note": "Ferocity branch" },
+      { "into": "hearthmane", "requires": { "resonance": 75, "temperamentMax": -30 }, "note": "Harmony branch" }
+    ],
+    "lore": "Its mane crackles like a living bonfire. The path it walks depends on the fire it carries within."
+  },
+  {
+    "id": "flarelynx",
+    "dexNumber": 3,
+    "name": "Flarelynx",
+    "types": ["ember"],
+    "category": "Blaze Hunter Kin",
+    "baseStats": { "hp": 70, "attack": 95, "defense": 60, "spatk": 100, "spdef": 62, "speed": 113 },
+    "catchRate": 45,
+    "growthRate": "medium",
+    "temperamentBias": 35,
+    "learnset": [
+      { "level": 1, "move": "ember_scratch" },
+      { "level": 7, "move": "flame_fang" },
+      { "level": 14, "move": "howl" },
+      { "level": 22, "move": "flame_fang" },
+      { "level": 30, "move": "pyroblast" },
+      { "level": 40, "move": "pyroblast" }
+    ],
+    "resonanceArt": "cinder_nova",
+    "evolutions": [],
+    "lore": "A ferocious predator that leaves scorched pawprints in its wake. It hunts by the light of its own burning coat."
+  },
+  {
+    "id": "hearthmane",
+    "dexNumber": 4,
+    "name": "Hearthmane",
+    "types": ["ember"],
+    "category": "Warmth Guardian Kin",
+    "baseStats": { "hp": 95, "attack": 80, "defense": 95, "spatk": 85, "spdef": 95, "speed": 50 },
+    "catchRate": 45,
+    "growthRate": "medium",
+    "temperamentBias": -30,
+    "learnset": [
+      { "level": 1, "move": "ember_scratch" },
+      { "level": 7, "move": "howl" },
+      { "level": 14, "move": "flame_fang" },
+      { "level": 22, "move": "pyroblast" },
+      { "level": 32, "move": "flame_fang" },
+      { "level": 42, "move": "pyroblast" }
+    ],
+    "resonanceArt": "cinder_nova",
+    "evolutions": [],
+    "lore": "A gentle giant whose warmth shelters entire villages through winter. Travellers gather at its side to share stories."
+  },
+  {
+    "id": "tidepup",
+    "dexNumber": 5,
+    "name": "Tidepup",
+    "types": ["tide"],
+    "category": "Sea Pup Kin",
+    "baseStats": { "hp": 50, "attack": 50, "defense": 48, "spatk": 58, "spdef": 52, "speed": 42 },
+    "catchRate": 45,
+    "growthRate": "medium",
+    "temperamentBias": 5,
+    "learnset": [
+      { "level": 1, "move": "water_jet" },
+      { "level": 6, "move": "aqua_slash" },
+      { "level": 12, "move": "water_jet" },
+      { "level": 18, "move": "tidal_crash" },
+      { "level": 24, "move": "aqua_slash" }
+    ],
+    "resonanceArt": "maelstrom",
+    "evolutions": [
+      { "into": "tidalhound", "requires": { "resonance": 40 } }
+    ],
+    "lore": "A playful pup that spouts seawater when excited. It naps in tidepools, rocking with the waves."
+  },
+  {
+    "id": "tidalhound",
+    "dexNumber": 6,
+    "name": "Tidalhound",
+    "types": ["tide"],
+    "category": "Surf Hound Kin",
+    "baseStats": { "hp": 68, "attack": 68, "defense": 62, "spatk": 78, "spdef": 66, "speed": 58 },
+    "catchRate": 45,
+    "growthRate": "medium",
+    "temperamentBias": 12,
+    "learnset": [
+      { "level": 1, "move": "water_jet" },
+      { "level": 7, "move": "aqua_slash" },
+      { "level": 14, "move": "tidal_crash" },
+      { "level": 21, "move": "aqua_slash" },
+      { "level": 28, "move": "tidal_crash" },
+      { "level": 34, "move": "water_jet" }
+    ],
+    "resonanceArt": "maelstrom",
+    "evolutions": [
+      { "into": "maelhound", "requires": { "resonance": 75, "temperamentMin": 30 }, "note": "Ferocity branch" },
+      { "into": "lumitide", "requires": { "resonance": 75, "temperamentMax": -30 }, "note": "Harmony branch" }
+    ],
+    "lore": "It rides breaking waves with fearless joy. Sailors say its bark heralds a coming storm."
+  },
+  {
+    "id": "maelhound",
+    "dexNumber": 7,
+    "name": "Maelhound",
+    "types": ["tide"],
+    "category": "Riptide Beast Kin",
+    "baseStats": { "hp": 85, "attack": 92, "defense": 75, "spatk": 98, "spdef": 75, "speed": 75 },
+    "catchRate": 45,
+    "growthRate": "medium",
+    "temperamentBias": 35,
+    "learnset": [
+      { "level": 1, "move": "water_jet" },
+      { "level": 7, "move": "aqua_slash" },
+      { "level": 14, "move": "tidal_crash" },
+      { "level": 22, "move": "aqua_slash" },
+      { "level": 30, "move": "tidal_crash" },
+      { "level": 40, "move": "tidal_crash" }
+    ],
+    "resonanceArt": "maelstrom",
+    "evolutions": [],
+    "lore": "A savage hunter that drags whirlpools in its wake. It corners prey in the crushing dark of the deep."
+  },
+  {
+    "id": "lumitide",
+    "dexNumber": 8,
+    "name": "Lumitide",
+    "types": ["tide", "lumen"],
+    "category": "Lantern Tide Kin",
+    "baseStats": { "hp": 82, "attack": 60, "defense": 80, "spatk": 105, "spdef": 93, "speed": 80 },
+    "catchRate": 45,
+    "growthRate": "medium",
+    "temperamentBias": -30,
+    "learnset": [
+      { "level": 1, "move": "water_jet" },
+      { "level": 7, "move": "lumen_ray" },
+      { "level": 14, "move": "aqua_slash" },
+      { "level": 22, "move": "radiance" },
+      { "level": 30, "move": "tidal_crash" },
+      { "level": 40, "move": "tidal_crash" }
+    ],
+    "resonanceArt": "maelstrom",
+    "evolutions": [],
+    "lore": "Bioluminescent fins glow softly in the abyss, guiding lost creatures home. Its calm presence stills troubled waters."
+  },
+  {
+    "id": "seedling",
+    "dexNumber": 9,
+    "name": "Seedling",
+    "types": ["verdant"],
+    "category": "Sprout Kin",
+    "baseStats": { "hp": 52, "attack": 48, "defense": 52, "spatk": 55, "spdef": 53, "speed": 40 },
+    "catchRate": 45,
+    "growthRate": "slow",
+    "temperamentBias": -8,
+    "learnset": [
+      { "level": 1, "move": "vine_whip" },
+      { "level": 5, "move": "leech_vine" },
+      { "level": 10, "move": "leaf_blade" },
+      { "level": 16, "move": "mend" },
+      { "level": 22, "move": "solar_bloom" }
+    ],
+    "resonanceArt": "worldroot",
+    "evolutions": [
+      { "into": "thornling", "requires": { "resonance": 40 } }
+    ],
+    "lore": "A shy sprout that unfurls a single leaf toward the sun. It hums quietly when the soil is rich."
+  },
+  {
+    "id": "thornling",
+    "dexNumber": 10,
+    "name": "Thornling",
+    "types": ["verdant"],
+    "category": "Bramble Kin",
+    "baseStats": { "hp": 68, "attack": 66, "defense": 70, "spatk": 72, "spdef": 70, "speed": 54 },
+    "catchRate": 45,
+    "growthRate": "slow",
+    "temperamentBias": -5,
+    "learnset": [
+      { "level": 1, "move": "vine_whip" },
+      { "level": 7, "move": "leech_vine" },
+      { "level": 13, "move": "leaf_blade" },
+      { "level": 19, "move": "entangle" },
+      { "level": 26, "move": "solar_bloom" },
+      { "level": 33, "move": "solar_bloom" }
+    ],
+    "resonanceArt": "worldroot",
+    "evolutions": [
+      { "into": "bramblejaw", "requires": { "resonance": 75, "temperamentMin": 30 }, "note": "Ferocity branch" },
+      { "into": "bloomward", "requires": { "resonance": 75, "temperamentMax": -30 }, "note": "Harmony branch" }
+    ],
+    "lore": "Thorns bristle along its spine as it grows bolder. It roots itself at night to drink the dew."
+  },
+  {
+    "id": "bramblejaw",
+    "dexNumber": 11,
+    "name": "Bramblejaw",
+    "types": ["verdant"],
+    "category": "Thornmaw Kin",
+    "baseStats": { "hp": 82, "attack": 105, "defense": 85, "spatk": 70, "spdef": 78, "speed": 80 },
+    "catchRate": 45,
+    "growthRate": "slow",
+    "temperamentBias": 35,
+    "learnset": [
+      { "level": 1, "move": "vine_whip" },
+      { "level": 7, "move": "leaf_blade" },
+      { "level": 14, "move": "leech_vine" },
+      { "level": 22, "move": "entangle" },
+      { "level": 30, "move": "solar_bloom" },
+      { "level": 40, "move": "solar_bloom" }
+    ],
+    "resonanceArt": "worldroot",
+    "evolutions": [],
+    "lore": "Its jaws snap shut like a bear trap woven from living briar. It patrols the deep forest as a merciless warden."
+  },
+  {
+    "id": "bloomward",
+    "dexNumber": 12,
+    "name": "Bloomward",
+    "types": ["verdant", "lumen"],
+    "category": "Blossom Ward Kin",
+    "baseStats": { "hp": 90, "attack": 60, "defense": 95, "spatk": 95, "spdef": 100, "speed": 60 },
+    "catchRate": 45,
+    "growthRate": "slow",
+    "temperamentBias": -35,
+    "learnset": [
+      { "level": 1, "move": "vine_whip" },
+      { "level": 7, "move": "mend" },
+      { "level": 14, "move": "leech_vine" },
+      { "level": 22, "move": "lumen_ray" },
+      { "level": 30, "move": "solar_bloom" },
+      { "level": 40, "move": "radiance" }
+    ],
+    "resonanceArt": "worldroot",
+    "evolutions": [],
+    "lore": "A great blossom crowns its head, radiating a healing glow. It watches over glades where wounded Kin come to rest."
+  },
+  {
+    "id": "breezlet",
+    "dexNumber": 13,
+    "name": "Breezlet",
+    "types": ["gale"],
+    "category": "Zephyr Chick Kin",
+    "baseStats": { "hp": 40, "attack": 45, "defense": 40, "spatk": 50, "spdef": 42, "speed": 83 },
+    "catchRate": 200,
+    "growthRate": "fast",
+    "temperamentBias": 15,
+    "learnset": [
+      { "level": 1, "move": "gust" },
+      { "level": 5, "move": "quicken" },
+      { "level": 10, "move": "wing_slash" },
+      { "level": 16, "move": "gust" },
+      { "level": 22, "move": "cyclone" }
+    ],
+    "resonanceArt": "tempest_call",
+    "evolutions": [
+      { "into": "skywisp", "requires": { "resonance": 30 } }
+    ],
+    "lore": "A downy fledgling that rides thermals higher than any other chick dares. It giggles as it tumbles through the wind."
+  },
+  {
+    "id": "skywisp",
+    "dexNumber": 14,
+    "name": "Skywisp",
+    "types": ["gale"],
+    "category": "Windrider Kin",
+    "baseStats": { "hp": 58, "attack": 60, "defense": 52, "spatk": 68, "spdef": 56, "speed": 106 },
+    "catchRate": 120,
+    "growthRate": "fast",
+    "temperamentBias": 18,
+    "learnset": [
+      { "level": 1, "move": "gust" },
+      { "level": 7, "move": "quicken" },
+      { "level": 13, "move": "wing_slash" },
+      { "level": 20, "move": "cyclone" },
+      { "level": 28, "move": "wing_slash" },
+      { "level": 34, "move": "cyclone" }
+    ],
+    "resonanceArt": "tempest_call",
+    "evolutions": [
+      { "into": "galestrike", "requires": { "resonance": 60 } }
+    ],
+    "lore": "It weaves through canyon updrafts at blinding speed. Its wingbeats leave whistling contrails in the sky."
+  },
+  {
+    "id": "galestrike",
+    "dexNumber": 15,
+    "name": "Galestrike",
+    "types": ["gale"],
+    "category": "Storm Falcon Kin",
+    "baseStats": { "hp": 72, "attack": 88, "defense": 65, "spatk": 90, "spdef": 65, "speed": 120 },
+    "catchRate": 60,
+    "growthRate": "fast",
+    "temperamentBias": 25,
+    "learnset": [
+      { "level": 1, "move": "gust" },
+      { "level": 7, "move": "wing_slash" },
+      { "level": 14, "move": "quicken" },
+      { "level": 22, "move": "cyclone" },
+      { "level": 30, "move": "wing_slash" },
+      { "level": 40, "move": "cyclone" }
+    ],
+    "resonanceArt": "tempest_call",
+    "evolutions": [],
+    "lore": "A falcon that dives from the eye of the storm to strike faster than sight. Thunder trails a heartbeat behind it."
+  },
+  {
+    "id": "pebblit",
+    "dexNumber": 16,
+    "name": "Pebblit",
+    "types": ["stone"],
+    "category": "Pebble Kin",
+    "baseStats": { "hp": 55, "attack": 52, "defense": 75, "spatk": 35, "spdef": 55, "speed": 28 },
+    "catchRate": 200,
+    "growthRate": "slow",
+    "temperamentBias": -10,
+    "learnset": [
+      { "level": 1, "move": "rock_toss" },
+      { "level": 5, "move": "guard" },
+      { "level": 10, "move": "stone_edge" },
+      { "level": 16, "move": "rock_toss" },
+      { "level": 22, "move": "quake" }
+    ],
+    "resonanceArt": "tectonic_rend",
+    "evolutions": [
+      { "into": "boulderling", "requires": { "resonance": 30 } }
+    ],
+    "lore": "A stubby creature that looks like an ordinary stone until it blinks. It rolls downhill rather than walk."
+  },
+  {
+    "id": "boulderling",
+    "dexNumber": 17,
+    "name": "Boulderling",
+    "types": ["stone"],
+    "category": "Boulder Kin",
+    "baseStats": { "hp": 72, "attack": 70, "defense": 100, "spatk": 45, "spdef": 70, "speed": 43 },
+    "catchRate": 120,
+    "growthRate": "slow",
+    "temperamentBias": -12,
+    "learnset": [
+      { "level": 1, "move": "rock_toss" },
+      { "level": 7, "move": "guard" },
+      { "level": 13, "move": "stone_edge" },
+      { "level": 20, "move": "quake" },
+      { "level": 28, "move": "reckless_charge" },
+      { "level": 34, "move": "quake" }
+    ],
+    "resonanceArt": "tectonic_rend",
+    "evolutions": [
+      { "into": "cragmaw", "requires": { "resonance": 60 } }
+    ],
+    "lore": "Its hide has hardened into rough granite plates. It plants itself in mountain passes and refuses to budge."
+  },
+  {
+    "id": "cragmaw",
+    "dexNumber": 18,
+    "name": "Cragmaw",
+    "types": ["stone"],
+    "category": "Mountain Jaw Kin",
+    "baseStats": { "hp": 90, "attack": 100, "defense": 125, "spatk": 50, "spdef": 80, "speed": 55 },
+    "catchRate": 60,
+    "growthRate": "slow",
+    "temperamentBias": 5,
+    "learnset": [
+      { "level": 1, "move": "rock_toss" },
+      { "level": 7, "move": "stone_edge" },
+      { "level": 14, "move": "guard" },
+      { "level": 22, "move": "quake" },
+      { "level": 30, "move": "reckless_charge" },
+      { "level": 40, "move": "quake" }
+    ],
+    "resonanceArt": "tectonic_rend",
+    "evolutions": [],
+    "lore": "A colossal maw of cliffside stone that can crush boulders like gravel. Its footfalls register as tremors for miles."
+  },
+  {
+    "id": "joltmouse",
+    "dexNumber": 19,
+    "name": "Joltmouse",
+    "types": ["spark"],
+    "category": "Static Mouse Kin",
+    "baseStats": { "hp": 40, "attack": 48, "defense": 38, "spatk": 52, "spdef": 42, "speed": 80 },
+    "catchRate": 190,
+    "growthRate": "fast",
+    "temperamentBias": 20,
+    "learnset": [
+      { "level": 1, "move": "spark_shot" },
+      { "level": 5, "move": "static_field" },
+      { "level": 10, "move": "volt_fang" },
+      { "level": 16, "move": "spark_shot" },
+      { "level": 22, "move": "thunderclap" }
+    ],
+    "resonanceArt": "overcharge",
+    "evolutions": [
+      { "into": "voltrat", "requires": { "resonance": 45 } }
+    ],
+    "lore": "Its whiskers spark whenever it is excited. It stores static in its cheeks and zaps anything that startles it."
+  },
+  {
+    "id": "voltrat",
+    "dexNumber": 20,
+    "name": "Voltrat",
+    "types": ["spark"],
+    "category": "Live-Wire Kin",
+    "baseStats": { "hp": 60, "attack": 80, "defense": 52, "spatk": 92, "spdef": 56, "speed": 140 },
+    "catchRate": 75,
+    "growthRate": "fast",
+    "temperamentBias": 25,
+    "learnset": [
+      { "level": 1, "move": "spark_shot" },
+      { "level": 6, "move": "volt_fang" },
+      { "level": 12, "move": "static_field" },
+      { "level": 20, "move": "thunderclap" },
+      { "level": 28, "move": "volt_fang" },
+      { "level": 38, "move": "thunderclap" }
+    ],
+    "resonanceArt": "overcharge",
+    "evolutions": [],
+    "lore": "A blur of crackling fur that outruns lightning strikes. It frays and shorts out any machinery it scurries across."
+  },
+  {
+    "id": "frostkit",
+    "dexNumber": 21,
+    "name": "Frostkit",
+    "types": ["frost"],
+    "category": "Snow Kit Kin",
+    "baseStats": { "hp": 48, "attack": 50, "defense": 48, "spatk": 55, "spdef": 52, "speed": 47 },
+    "catchRate": 190,
+    "growthRate": "medium",
+    "temperamentBias": -15,
+    "learnset": [
+      { "level": 1, "move": "ice_shard" },
+      { "level": 5, "move": "frost_bite" },
+      { "level": 10, "move": "chill_touch" },
+      { "level": 16, "move": "frost_bite" },
+      { "level": 22, "move": "glacial_beam" }
+    ],
+    "resonanceArt": "absolute_zero",
+    "evolutions": [
+      { "into": "glacielle", "requires": { "resonance": 30 } }
+    ],
+    "lore": "A frost-furred kit that leaves tiny snowflakes wherever it treads. It curls into a snowball to sleep."
+  },
+  {
+    "id": "glacielle",
+    "dexNumber": 22,
+    "name": "Glacielle",
+    "types": ["frost"],
+    "category": "Icecoat Kin",
+    "baseStats": { "hp": 64, "attack": 64, "defense": 66, "spatk": 76, "spdef": 70, "speed": 60 },
+    "catchRate": 120,
+    "growthRate": "medium",
+    "temperamentBias": -10,
+    "learnset": [
+      { "level": 1, "move": "ice_shard" },
+      { "level": 7, "move": "frost_bite" },
+      { "level": 13, "move": "chill_touch" },
+      { "level": 20, "move": "glacial_beam" },
+      { "level": 28, "move": "frost_bite" },
+      { "level": 34, "move": "glacial_beam" }
+    ],
+    "resonanceArt": "absolute_zero",
+    "evolutions": [
+      { "into": "borealynx", "requires": { "resonance": 60 } }
+    ],
+    "lore": "Crystalline armour sheathes its graceful limbs. Its breath fogs the air into drifting flurries."
+  },
+  {
+    "id": "borealynx",
+    "dexNumber": 23,
+    "name": "Borealynx",
+    "types": ["frost"],
+    "category": "Aurora Cat Kin",
+    "baseStats": { "hp": 80, "attack": 85, "defense": 78, "spatk": 98, "spdef": 82, "speed": 77 },
+    "catchRate": 60,
+    "growthRate": "medium",
+    "temperamentBias": -5,
+    "learnset": [
+      { "level": 1, "move": "ice_shard" },
+      { "level": 7, "move": "frost_bite" },
+      { "level": 14, "move": "chill_touch" },
+      { "level": 22, "move": "glacial_beam" },
+      { "level": 30, "move": "ice_shard" },
+      { "level": 40, "move": "glacial_beam" }
+    ],
+    "resonanceArt": "absolute_zero",
+    "evolutions": [],
+    "lore": "A regal lynx whose coat shimmers with borrowed aurora light. It prowls frozen ridgelines beneath the northern sky."
+  },
+  {
+    "id": "shadepup",
+    "dexNumber": 24,
+    "name": "Shadepup",
+    "types": ["umbra"],
+    "category": "Shadow Pup Kin",
+    "baseStats": { "hp": 45, "attack": 58, "defense": 45, "spatk": 52, "spdef": 45, "speed": 55 },
+    "catchRate": 180,
+    "growthRate": "medium",
+    "temperamentBias": 18,
+    "learnset": [
+      { "level": 1, "move": "shadow_claw" },
+      { "level": 5, "move": "intimidate" },
+      { "level": 10, "move": "umbral_bolt" },
+      { "level": 16, "move": "shadow_claw" },
+      { "level": 22, "move": "void_pulse" }
+    ],
+    "resonanceArt": "eclipse",
+    "evolutions": [
+      { "into": "nocthound", "requires": { "resonance": 30 } }
+    ],
+    "lore": "A pup that melts into its own shadow when frightened. Its eyes glimmer like two coals in the dark."
+  },
+  {
+    "id": "nocthound",
+    "dexNumber": 25,
+    "name": "Nocthound",
+    "types": ["umbra"],
+    "category": "Night Hound Kin",
+    "baseStats": { "hp": 62, "attack": 78, "defense": 58, "spatk": 70, "spdef": 60, "speed": 72 },
+    "catchRate": 100,
+    "growthRate": "medium",
+    "temperamentBias": 25,
+    "learnset": [
+      { "level": 1, "move": "shadow_claw" },
+      { "level": 7, "move": "intimidate" },
+      { "level": 13, "move": "umbral_bolt" },
+      { "level": 20, "move": "void_pulse" },
+      { "level": 28, "move": "shadow_claw" },
+      { "level": 34, "move": "void_pulse" }
+    ],
+    "resonanceArt": "eclipse",
+    "evolutions": [
+      { "into": "umbrawulf", "requires": { "resonance": 60, "timeOfDay": "night" } }
+    ],
+    "lore": "It hunts only after dusk, following scents no other Kin can perceive. Moonless nights make it bold."
+  },
+  {
+    "id": "umbrawulf",
+    "dexNumber": 26,
+    "name": "Umbrawulf",
+    "types": ["umbra"],
+    "category": "Duskfang Kin",
+    "baseStats": { "hp": 82, "attack": 108, "defense": 72, "spatk": 88, "spdef": 75, "speed": 75 },
+    "catchRate": 55,
+    "growthRate": "medium",
+    "temperamentBias": 30,
+    "learnset": [
+      { "level": 1, "move": "shadow_claw" },
+      { "level": 7, "move": "umbral_bolt" },
+      { "level": 14, "move": "intimidate" },
+      { "level": 22, "move": "void_pulse" },
+      { "level": 30, "move": "shadow_claw" },
+      { "level": 40, "move": "void_pulse" }
+    ],
+    "resonanceArt": "eclipse",
+    "evolutions": [],
+    "lore": "A wolf woven from midnight itself, its howl swallows starlight. Whole packs of lesser Kin flee at its approach."
+  },
+  {
+    "id": "gleamoth",
+    "dexNumber": 27,
+    "name": "Gleamoth",
+    "types": ["lumen"],
+    "category": "Glimmer Moth Kin",
+    "baseStats": { "hp": 45, "attack": 40, "defense": 45, "spatk": 68, "spdef": 52, "speed": 50 },
+    "catchRate": 190,
+    "growthRate": "medium",
+    "temperamentBias": -20,
+    "learnset": [
+      { "level": 1, "move": "light_jab" },
+      { "level": 5, "move": "focus_mind" },
+      { "level": 10, "move": "lumen_ray" },
+      { "level": 16, "move": "light_jab" },
+      { "level": 22, "move": "radiance" }
+    ],
+    "resonanceArt": "dawnbreak",
+    "evolutions": [
+      { "into": "radimoth", "requires": { "resonance": 45 } }
+    ],
+    "lore": "Its wing-scales scatter soft light in a lantern glow. It drifts toward any warmth in the dark."
+  },
+  {
+    "id": "radimoth",
+    "dexNumber": 28,
+    "name": "Radimoth",
+    "types": ["lumen"],
+    "category": "Radiant Moth Kin",
+    "baseStats": { "hp": 75, "attack": 60, "defense": 70, "spatk": 115, "spdef": 88, "speed": 82 },
+    "catchRate": 75,
+    "growthRate": "medium",
+    "temperamentBias": -15,
+    "learnset": [
+      { "level": 1, "move": "light_jab" },
+      { "level": 7, "move": "lumen_ray" },
+      { "level": 14, "move": "focus_mind" },
+      { "level": 22, "move": "radiance" },
+      { "level": 30, "move": "lumen_ray" },
+      { "level": 40, "move": "radiance" }
+    ],
+    "resonanceArt": "dawnbreak",
+    "evolutions": [],
+    "lore": "Its unfurled wings blaze like a small sun, banishing shadows from the deepest cave. Pilgrims follow its light."
+  },
+  {
+    "id": "mossbug",
+    "dexNumber": 29,
+    "name": "Mossbug",
+    "types": ["verdant"],
+    "category": "Moss Grub Kin",
+    "baseStats": { "hp": 50, "attack": 52, "defense": 58, "spatk": 45, "spdef": 55, "speed": 40 },
+    "catchRate": 200,
+    "growthRate": "slow",
+    "temperamentBias": -5,
+    "learnset": [
+      { "level": 1, "move": "vine_whip" },
+      { "level": 5, "move": "leech_vine" },
+      { "level": 10, "move": "leaf_blade" },
+      { "level": 16, "move": "mend" },
+      { "level": 22, "move": "solar_bloom" }
+    ],
+    "resonanceArt": "worldroot",
+    "evolutions": [
+      { "into": "beetlord", "requires": { "resonance": 45 } }
+    ],
+    "lore": "A soft grub blanketed in living moss. It shuffles across the forest floor, tending the seedlings it passes."
+  },
+  {
+    "id": "beetlord",
+    "dexNumber": 30,
+    "name": "Beetlord",
+    "types": ["verdant", "stone"],
+    "category": "Ironshell Beetle Kin",
+    "baseStats": { "hp": 90, "attack": 105, "defense": 110, "spatk": 55, "spdef": 80, "speed": 60 },
+    "catchRate": 70,
+    "growthRate": "slow",
+    "temperamentBias": 0,
+    "learnset": [
+      { "level": 1, "move": "vine_whip" },
+      { "level": 7, "move": "leaf_blade" },
+      { "level": 14, "move": "rock_toss" },
+      { "level": 22, "move": "stone_edge" },
+      { "level": 30, "move": "solar_bloom" },
+      { "level": 40, "move": "quake" }
+    ],
+    "resonanceArt": "worldroot",
+    "evolutions": [],
+    "lore": "Its carapace has petrified into gleaming mineral armour. It rules the underbrush from atop a throne of fallen logs."
+  },
+  {
+    "id": "finnling",
+    "dexNumber": 31,
+    "name": "Finnling",
+    "types": ["tide"],
+    "category": "Riverfin Kin",
+    "baseStats": { "hp": 45, "attack": 55, "defense": 45, "spatk": 50, "spdef": 45, "speed": 60 },
+    "catchRate": 200,
+    "growthRate": "fast",
+    "temperamentBias": 15,
+    "learnset": [
+      { "level": 1, "move": "water_jet" },
+      { "level": 6, "move": "aqua_slash" },
+      { "level": 12, "move": "water_jet" },
+      { "level": 18, "move": "tidal_crash" },
+      { "level": 24, "move": "aqua_slash" }
+    ],
+    "resonanceArt": "maelstrom",
+    "evolutions": [
+      { "into": "razorfin", "requires": { "resonance": 45 } }
+    ],
+    "lore": "A darting river fish with fins sharp as flint. It nips at the toes of unwary waders."
+  },
+  {
+    "id": "razorfin",
+    "dexNumber": 32,
+    "name": "Razorfin",
+    "types": ["tide"],
+    "category": "Bladefin Kin",
+    "baseStats": { "hp": 70, "attack": 105, "defense": 65, "spatk": 60, "spdef": 65, "speed": 125 },
+    "catchRate": 75,
+    "growthRate": "fast",
+    "temperamentBias": 30,
+    "learnset": [
+      { "level": 1, "move": "water_jet" },
+      { "level": 7, "move": "aqua_slash" },
+      { "level": 14, "move": "tidal_crash" },
+      { "level": 22, "move": "aqua_slash" },
+      { "level": 30, "move": "tidal_crash" },
+      { "level": 40, "move": "tidal_crash" }
+    ],
+    "resonanceArt": "maelstrom",
+    "evolutions": [],
+    "lore": "A frenzied predator that shreds through shoals in seconds. Its dorsal fin cuts the surface like a drawn sabre."
+  },
+  {
+    "id": "zaplet",
+    "dexNumber": 33,
+    "name": "Zaplet",
+    "types": ["spark"],
+    "category": "Sparkling Kin",
+    "baseStats": { "hp": 42, "attack": 45, "defense": 42, "spatk": 58, "spdef": 45, "speed": 68 },
+    "catchRate": 190,
+    "growthRate": "fast",
+    "temperamentBias": 20,
+    "learnset": [
+      { "level": 1, "move": "spark_shot" },
+      { "level": 5, "move": "static_field" },
+      { "level": 10, "move": "volt_fang" },
+      { "level": 16, "move": "spark_shot" },
+      { "level": 22, "move": "thunderclap" }
+    ],
+    "resonanceArt": "overcharge",
+    "evolutions": [
+      { "into": "stormcrow", "requires": { "resonance": 45 } }
+    ],
+    "lore": "A tiny bird that gathers charge in its ruffled feathers. It roosts on lightning rods during storms."
+  },
+  {
+    "id": "stormcrow",
+    "dexNumber": 34,
+    "name": "Stormcrow",
+    "types": ["spark", "gale"],
+    "category": "Tempest Crow Kin",
+    "baseStats": { "hp": 72, "attack": 78, "defense": 62, "spatk": 98, "spdef": 65, "speed": 115 },
+    "catchRate": 70,
+    "growthRate": "fast",
+    "temperamentBias": 25,
+    "learnset": [
+      { "level": 1, "move": "spark_shot" },
+      { "level": 7, "move": "volt_fang" },
+      { "level": 14, "move": "gust" },
+      { "level": 22, "move": "thunderclap" },
+      { "level": 30, "move": "cyclone" },
+      { "level": 40, "move": "thunderclap" }
+    ],
+    "resonanceArt": "overcharge",
+    "evolutions": [],
+    "lore": "It flies inside thunderheads, feathers snapping with blue arcs. Where it circles, lightning is sure to fall."
+  },
+  {
+    "id": "coalcrawl",
+    "dexNumber": 35,
+    "name": "Coalcrawl",
+    "types": ["ember"],
+    "category": "Cinder Grub Kin",
+    "baseStats": { "hp": 52, "attack": 58, "defense": 55, "spatk": 50, "spdef": 45, "speed": 40 },
+    "catchRate": 190,
+    "growthRate": "slow",
+    "temperamentBias": 12,
+    "learnset": [
+      { "level": 1, "move": "ember_scratch" },
+      { "level": 5, "move": "howl" },
+      { "level": 10, "move": "flame_fang" },
+      { "level": 16, "move": "flame_fang" },
+      { "level": 22, "move": "pyroblast" }
+    ],
+    "resonanceArt": "cinder_nova",
+    "evolutions": [
+      { "into": "magmaw", "requires": { "resonance": 45 } }
+    ],
+    "lore": "A grub that burrows through smouldering coal beds. Embers glow between the segments of its charred shell."
+  },
+  {
+    "id": "magmaw",
+    "dexNumber": 36,
+    "name": "Magmaw",
+    "types": ["ember", "stone"],
+    "category": "Molten Maw Kin",
+    "baseStats": { "hp": 85, "attack": 108, "defense": 100, "spatk": 75, "spdef": 72, "speed": 60 },
+    "catchRate": 70,
+    "growthRate": "slow",
+    "temperamentBias": 20,
+    "learnset": [
+      { "level": 1, "move": "ember_scratch" },
+      { "level": 7, "move": "flame_fang" },
+      { "level": 14, "move": "rock_toss" },
+      { "level": 22, "move": "stone_edge" },
+      { "level": 30, "move": "pyroblast" },
+      { "level": 40, "move": "quake" }
+    ],
+    "resonanceArt": "cinder_nova",
+    "evolutions": [],
+    "lore": "Molten rock churns behind its cracked, obsidian hide. It surfaces from lava tubes to bask in volcanic heat."
+  },
+  {
+    "id": "snowseal",
+    "dexNumber": 37,
+    "name": "Snowseal",
+    "types": ["frost"],
+    "category": "Snow Seal Kin",
+    "baseStats": { "hp": 62, "attack": 48, "defense": 55, "spatk": 52, "spdef": 50, "speed": 33 },
+    "catchRate": 190,
+    "growthRate": "medium",
+    "temperamentBias": -18,
+    "learnset": [
+      { "level": 1, "move": "ice_shard" },
+      { "level": 5, "move": "frost_bite" },
+      { "level": 10, "move": "chill_touch" },
+      { "level": 16, "move": "frost_bite" },
+      { "level": 22, "move": "glacial_beam" }
+    ],
+    "resonanceArt": "absolute_zero",
+    "evolutions": [
+      { "into": "tidalrus", "requires": { "resonance": 45 } }
+    ],
+    "lore": "A round pup that slides across ice floes on its belly. It hums a low, contented note while sunning."
+  },
+  {
+    "id": "tidalrus",
+    "dexNumber": 38,
+    "name": "Tidalrus",
+    "types": ["frost", "tide"],
+    "category": "Glacier Walrus Kin",
+    "baseStats": { "hp": 108, "attack": 88, "defense": 90, "spatk": 80, "spdef": 84, "speed": 50 },
+    "catchRate": 70,
+    "growthRate": "medium",
+    "temperamentBias": -8,
+    "learnset": [
+      { "level": 1, "move": "ice_shard" },
+      { "level": 7, "move": "frost_bite" },
+      { "level": 14, "move": "water_jet" },
+      { "level": 22, "move": "aqua_slash" },
+      { "level": 30, "move": "glacial_beam" },
+      { "level": 40, "move": "tidal_crash" }
+    ],
+    "resonanceArt": "absolute_zero",
+    "evolutions": [],
+    "lore": "Tusks of blue ice let it carve breathing holes through frozen seas. Its bellow can crack an ice sheet in two."
+  },
+  {
+    "id": "oreling",
+    "dexNumber": 39,
+    "name": "Oreling",
+    "types": ["stone"],
+    "category": "Ore Kin",
+    "baseStats": { "hp": 55, "attack": 55, "defense": 72, "spatk": 40, "spdef": 50, "speed": 28 },
+    "catchRate": 190,
+    "growthRate": "slow",
+    "temperamentBias": -5,
+    "learnset": [
+      { "level": 1, "move": "rock_toss" },
+      { "level": 5, "move": "guard" },
+      { "level": 10, "move": "stone_edge" },
+      { "level": 16, "move": "rock_toss" },
+      { "level": 22, "move": "quake" }
+    ],
+    "resonanceArt": "tectonic_rend",
+    "evolutions": [
+      { "into": "ferralit", "requires": { "resonance": 75, "temperamentMin": 30 }, "note": "Ferocity branch" },
+      { "into": "bastion", "requires": { "resonance": 75, "temperamentMax": -30 }, "note": "Harmony branch" }
+    ],
+    "lore": "Veins of raw metal thread through its rocky body. Miners consider spotting one a sign of a rich lode."
+  },
+  {
+    "id": "ferralit",
+    "dexNumber": 40,
+    "name": "Ferralit",
+    "types": ["stone", "spark"],
+    "category": "Ironclad Kin",
+    "baseStats": { "hp": 82, "attack": 110, "defense": 105, "spatk": 68, "spdef": 70, "speed": 65 },
+    "catchRate": 60,
+    "growthRate": "slow",
+    "temperamentBias": 35,
+    "learnset": [
+      { "level": 1, "move": "rock_toss" },
+      { "level": 7, "move": "stone_edge" },
+      { "level": 14, "move": "spark_shot" },
+      { "level": 22, "move": "volt_fang" },
+      { "level": 30, "move": "quake" },
+      { "level": 40, "move": "thunderclap" }
+    ],
+    "resonanceArt": "tectonic_rend",
+    "evolutions": [],
+    "lore": "Its magnetized iron plates crackle with stored current. It charges foes head-on, striking with electrified fists."
+  },
+  {
+    "id": "bastion",
+    "dexNumber": 41,
+    "name": "Bastion",
+    "types": ["stone"],
+    "category": "Bulwark Kin",
+    "baseStats": { "hp": 95, "attack": 70, "defense": 135, "spatk": 55, "spdef": 110, "speed": 35 },
+    "catchRate": 60,
+    "growthRate": "slow",
+    "temperamentBias": -35,
+    "learnset": [
+      { "level": 1, "move": "rock_toss" },
+      { "level": 7, "move": "guard" },
+      { "level": 14, "move": "stone_edge" },
+      { "level": 22, "move": "guard" },
+      { "level": 30, "move": "quake" },
+      { "level": 40, "move": "quake" }
+    ],
+    "resonanceArt": "tectonic_rend",
+    "evolutions": [],
+    "lore": "A living fortress that plants itself before those it protects. No blow has ever cracked its layered stone shell."
+  },
+  {
+    "id": "driftwisp",
+    "dexNumber": 42,
+    "name": "Driftwisp",
+    "types": ["gale"],
+    "category": "Drifting Kin",
+    "baseStats": { "hp": 70, "attack": 65, "defense": 68, "spatk": 82, "spdef": 70, "speed": 85 },
+    "catchRate": 120,
+    "growthRate": "fast",
+    "temperamentBias": 12,
+    "learnset": [
+      { "level": 1, "move": "gust" },
+      { "level": 6, "move": "quicken" },
+      { "level": 12, "move": "wing_slash" },
+      { "level": 20, "move": "cyclone" },
+      { "level": 28, "move": "wing_slash" },
+      { "level": 36, "move": "cyclone" }
+    ],
+    "resonanceArt": "tempest_call",
+    "evolutions": [],
+    "lore": "A wandering knot of wind that never touches the ground. It carries seeds and secrets between distant valleys."
+  },
+  {
+    "id": "sporeling",
+    "dexNumber": 43,
+    "name": "Sporeling",
+    "types": ["verdant"],
+    "category": "Spore Kin",
+    "baseStats": { "hp": 80, "attack": 70, "defense": 78, "spatk": 78, "spdef": 79, "speed": 55 },
+    "catchRate": 130,
+    "growthRate": "slow",
+    "temperamentBias": -20,
+    "learnset": [
+      { "level": 1, "move": "vine_whip" },
+      { "level": 6, "move": "leech_vine" },
+      { "level": 12, "move": "entangle" },
+      { "level": 20, "move": "leaf_blade" },
+      { "level": 28, "move": "mend" },
+      { "level": 36, "move": "solar_bloom" }
+    ],
+    "resonanceArt": "worldroot",
+    "evolutions": [],
+    "lore": "A capped fungus-Kin that releases drowsy spores when threatened. Whole groves of it pulse in unison at dawn."
+  },
+  {
+    "id": "duskmoth",
+    "dexNumber": 44,
+    "name": "Duskmoth",
+    "types": ["umbra"],
+    "category": "Dusk Moth Kin",
+    "baseStats": { "hp": 72, "attack": 80, "defense": 66, "spatk": 82, "spdef": 65, "speed": 75 },
+    "catchRate": 110,
+    "growthRate": "medium",
+    "temperamentBias": 20,
+    "learnset": [
+      { "level": 1, "move": "shadow_claw" },
+      { "level": 6, "move": "intimidate" },
+      { "level": 12, "move": "umbral_bolt" },
+      { "level": 20, "move": "void_pulse" },
+      { "level": 28, "move": "shadow_claw" },
+      { "level": 36, "move": "void_pulse" }
+    ],
+    "resonanceArt": "eclipse",
+    "evolutions": [],
+    "lore": "Its wings drink ambient light, leaving a pocket of gloom around it. It emerges only in the last minutes of twilight."
+  },
+  {
+    "id": "dawnfawn",
+    "dexNumber": 45,
+    "name": "Dawnfawn",
+    "types": ["lumen"],
+    "category": "Dawn Fawn Kin",
+    "baseStats": { "hp": 74, "attack": 68, "defense": 70, "spatk": 85, "spdef": 78, "speed": 65 },
+    "catchRate": 110,
+    "growthRate": "medium",
+    "temperamentBias": -25,
+    "learnset": [
+      { "level": 1, "move": "light_jab" },
+      { "level": 6, "move": "focus_mind" },
+      { "level": 12, "move": "lumen_ray" },
+      { "level": 20, "move": "radiance" },
+      { "level": 28, "move": "lumen_ray" },
+      { "level": 36, "move": "radiance" }
+    ],
+    "resonanceArt": "dawnbreak",
+    "evolutions": [],
+    "lore": "Its antlers catch the first light of morning and scatter it as gold. Meadows bloom in the wake of its passing."
+  },
+  {
+    "id": "mistling",
+    "dexNumber": 46,
+    "name": "Mistling",
+    "types": ["tide"],
+    "category": "Mist Kin",
+    "baseStats": { "hp": 75, "attack": 68, "defense": 72, "spatk": 80, "spdef": 75, "speed": 70 },
+    "catchRate": 130,
+    "growthRate": "medium",
+    "temperamentBias": -5,
+    "learnset": [
+      { "level": 1, "move": "water_jet" },
+      { "level": 6, "move": "aqua_slash" },
+      { "level": 12, "move": "water_jet" },
+      { "level": 20, "move": "tidal_crash" },
+      { "level": 28, "move": "aqua_slash" },
+      { "level": 36, "move": "tidal_crash" }
+    ],
+    "resonanceArt": "maelstrom",
+    "evolutions": [],
+    "lore": "A drifting body of living fog that gathers over still lakes. It condenses into dew when the sun rises."
+  },
+  {
+    "id": "arcbulb",
+    "dexNumber": 47,
+    "name": "Arcbulb",
+    "types": ["spark"],
+    "category": "Arc Lamp Kin",
+    "baseStats": { "hp": 68, "attack": 70, "defense": 66, "spatk": 88, "spdef": 68, "speed": 80 },
+    "catchRate": 120,
+    "growthRate": "fast",
+    "temperamentBias": 18,
+    "learnset": [
+      { "level": 1, "move": "spark_shot" },
+      { "level": 6, "move": "static_field" },
+      { "level": 12, "move": "volt_fang" },
+      { "level": 20, "move": "thunderclap" },
+      { "level": 28, "move": "volt_fang" },
+      { "level": 36, "move": "thunderclap" }
+    ],
+    "resonanceArt": "overcharge",
+    "evolutions": [],
+    "lore": "A glass-bodied Kin that hums with a steady inner glow. It flickers in patterns some claim is a language."
+  },
+  {
+    "id": "nyxaroth",
+    "dexNumber": 48,
+    "name": "Nyxaroth",
+    "types": ["umbra"],
+    "category": "Devouring Dark Kin",
+    "baseStats": { "hp": 110, "attack": 130, "defense": 100, "spatk": 115, "spdef": 95, "speed": 50 },
+    "catchRate": 3,
+    "growthRate": "slow",
+    "temperamentBias": 40,
+    "learnset": [
+      { "level": 1, "move": "shadow_claw" },
+      { "level": 8, "move": "umbral_bolt" },
+      { "level": 16, "move": "intimidate" },
+      { "level": 26, "move": "void_pulse" },
+      { "level": 36, "move": "void_pulse" },
+      { "level": 46, "move": "void_pulse" }
+    ],
+    "resonanceArt": "eclipse",
+    "evolutions": [],
+    "lore": "The Hollow's devouring beast, a maw that swallows light and Kin alike. Where it walks, even memory dims to nothing."
+  },
+  {
+    "id": "solaris",
+    "dexNumber": 49,
+    "name": "Solaris",
+    "types": ["lumen"],
+    "category": "Lumen Core Guardian Kin",
+    "baseStats": { "hp": 105, "attack": 90, "defense": 100, "spatk": 135, "spdef": 110, "speed": 60 },
+    "catchRate": 3,
+    "growthRate": "slow",
+    "temperamentBias": -20,
+    "learnset": [
+      { "level": 1, "move": "light_jab" },
+      { "level": 8, "move": "lumen_ray" },
+      { "level": 16, "move": "focus_mind" },
+      { "level": 26, "move": "radiance" },
+      { "level": 36, "move": "radiance" },
+      { "level": 46, "move": "radiance" }
+    ],
+    "resonanceArt": "dawnbreak",
+    "evolutions": [],
+    "lore": "The radiant guardian of the Lumen Core, wreathed in an unquenchable corona. Its gaze alone can hold back the Hollow."
+  },
+  {
+    "id": "aetherion",
+    "dexNumber": 50,
+    "name": "Aetherion",
+    "types": ["lumen", "gale"],
+    "category": "World-Serpent Kin",
+    "baseStats": { "hp": 110, "attack": 100, "defense": 100, "spatk": 120, "spdef": 95, "speed": 75 },
+    "catchRate": 3,
+    "growthRate": "slow",
+    "temperamentBias": 0,
+    "learnset": [
+      { "level": 1, "move": "light_jab" },
+      { "level": 8, "move": "lumen_ray" },
+      { "level": 16, "move": "gust" },
+      { "level": 26, "move": "cyclone" },
+      { "level": 36, "move": "radiance" },
+      { "level": 46, "move": "radiance" }
+    ],
+    "resonanceArt": "dawnbreak",
+    "evolutions": [],
+    "lore": "The world-serpent whose coils encircle the sky, said to have sung the first Resonance into being. Its awakening marks the end of one age and the dawn of the next."
+  }
+]

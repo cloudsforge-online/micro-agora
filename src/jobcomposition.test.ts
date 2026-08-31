@@ -43,6 +43,7 @@
 
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { JobQueue, JobRunner, type Sql as JobsSql } from '@cloudsforge/jobs'
 import { Logger, Metrics, registerJobMetrics } from '@cloudsforge/telemetry'
 import {
@@ -140,6 +141,72 @@ import {
   PARCEL_SETTLE_KIND,
   KILN_FIRE_KIND,
 } from './tessera/jobs.ts'
+// ── WAVE M5d ──────────────────────────────────────────────────────────────────────────────────
+//
+// trade brings the TWELFTH `outbox.relay` and a THIRD exact collision that is nobody's mistake:
+// `idempotency.reap` is market's name too. Both aliased, because the constant names collide as
+// well (`REAP_KIND` in both files) — harmless, since the kind VALUES are what this file pins.
+import {
+  RELAY_KIND as TRADE_RELAY,
+  TICK_SWEEP_KIND,
+  TICK_KIND,
+  SETTLE_SWEEP_KIND,
+  SETTLE_KIND,
+  BACKTEST_KIND,
+  REAP_KIND as TRADE_REAP,
+  MAINTAIN_SWEEP_KIND,
+  MAINTAIN_KIND,
+  TRANSFER_SWEEP_KIND,
+  TRANSFER_KIND,
+  RATE_REAP_KIND,
+} from './trade/jobs.ts'
+// wallet makes `idempotency.reap` a THREE-way collision and `outbox.relay` a thirteenth.
+import {
+  RELAY_KIND as WALLET_RELAY,
+  WATCH_KIND,
+  POST_CREDIT_KIND,
+  RESERVE_KIND,
+  SWEEP_KIND as WITHDRAWAL_SWEEP_KIND,
+  REAP_KIND as WALLET_REAP,
+} from './wallet/jobs.ts'
+// admin makes `idempotency.reap` a FOUR-way collision and `outbox.relay` a fourteenth. Its
+// constants are spelled differently from every other module's (`OUTBOX_RELAY`, not `RELAY_KIND`),
+// which is harmless — the kind VALUES are what this file pins.
+import {
+  OUTBOX_RELAY as ADMIN_RELAY,
+  IDEMPOTENCY_REAP as ADMIN_REAP,
+  AUDIT_VERIFY,
+  APPROVALS_EXPIRE,
+  BACKUP_SCHEDULE,
+} from './admin/jobs.ts'
+// ── AND THE THREE TITLES, which take `outbox.relay` to seventeen and `idempotency.reap` to five ─
+//
+// emberkin and nda ALSO both register `achievement.sweep` and `achievement.deliver`: two unrelated
+// achievement bridges into two different `worlds` profiles. Aliased on import because the constant
+// names collide as well — harmless, since the kind VALUES are what this file pins.
+import {
+  RELAY_KIND as EMBERKIN_RELAY,
+  ACH_SWEEP_KIND as EMBERKIN_ACH_SWEEP,
+  ACH_DELIVER_KIND as EMBERKIN_ACH_DELIVER,
+  SEASON_ROLLOVER_KIND,
+  SEASON_REWARD_KIND,
+} from './emberkin/jobs.ts'
+import {
+  RELAY_KIND as AETHERHOLM_RELAY,
+  SEASON_ENSURE_KIND,
+  CITY_QUEUE_KIND,
+  FLEET_KIND,
+  SIEGE_KIND,
+  SEASON_CLOSE_KIND,
+} from './emberkin/aetherholm/jobs.ts'
+import {
+  RELAY_KIND as NDA_RELAY,
+  WORLD_SWEEP_KIND,
+  WORLD_TICK_KIND,
+  ACH_SWEEP_KIND as NDA_ACH_SWEEP,
+  ACH_DELIVER_KIND as NDA_ACH_DELIVER,
+  IDEMPOTENCY_REAP_KIND as NDA_REAP,
+} from './emberkin/nda/jobs.ts'
 
 const quiet = new Logger({ service: 'jobcomposition-test', sink: () => {} })
 const nothing = {} as unknown as JobsSql
@@ -607,5 +674,177 @@ describe('WAVE M5b: the commerce/games tier brings six more relays and a second 
       assert.ok(relays.some((l) => l.includes(`module="${module}"`)), `${module} is missing`)
     }
     for (const line of relays) assert.match(line, / 1$/, 'each module counts its own failure, not the sum')
+  })
+})
+
+
+describe('WAVE M5d: six more relays, `idempotency.reap` five ways, and a second two-way pair', () => {
+  const render = (metrics: Metrics): string[] => metrics.render().split('\n')
+
+  it('six more modules name their relay `outbox.relay` too, which makes seventeen', () => {
+    for (const relay of [TRADE_RELAY, WALLET_RELAY, ADMIN_RELAY, EMBERKIN_RELAY, AETHERHOLM_RELAY, NDA_RELAY]) {
+      assert.equal(relay, 'outbox.relay')
+    }
+    const relays = new Set([
+      AGORA_RELAY,
+      DEVPLATFORM_RELAY,
+      PRICING_RELAY,
+      STUDIO_RELAY,
+      COMMUNITY_RELAY,
+      MARKET_RELAY,
+      BILLING_RELAY,
+      MINT_RELAY,
+      WORLDS_RELAY,
+      TESSERA_RELAY,
+      TRADE_RELAY,
+      WALLET_RELAY,
+      ADMIN_RELAY,
+      EMBERKIN_RELAY,
+      AETHERHOLM_RELAY,
+      NDA_RELAY,
+    ])
+    assert.equal(relays.size, 1, 'all of them spell it identically, so one shared runner would refuse the second')
+  })
+
+  it('and `idempotency.reap` is now a FIVE-way collision — market, trade, wallet, admin, nda', () => {
+    /*
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * NOBODY'S MISTAKE, AND WORTH WRITING DOWN FOR THAT REASON.
+     *
+     * Both modules accept an `Idempotency-Key` on a write and both sweep the claimed keys on a
+     * timer, so both called the job `idempotency.reap`. They are unrelated queues in unrelated
+     * databases reaping unrelated keys — billing spells its own `billing.idempotency.reap` and
+     * therefore escapes, which shows the collision was avoidable and also that avoiding it is not
+     * something a reviewer reliably notices.
+     *
+     * Without the `module` label, `jobs_failed_total{kind="idempotency.reap"}` is one series
+     * summing two independent reapers: a number that still moves, that `JobQueueOverdue` still
+     * fires on, and that names a service which is now eighteen.
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     */
+    assert.equal(TRADE_REAP, MARKET_REAP, 'the collision is real, character for character')
+    assert.equal(WALLET_REAP, MARKET_REAP, 'and wallet makes it three')
+    assert.equal(ADMIN_REAP, MARKET_REAP, 'and admin makes it four')
+    assert.equal(NDA_REAP, MARKET_REAP, 'and nda makes it five')
+    assert.equal(TRADE_REAP, 'idempotency.reap')
+    assert.notEqual(TRADE_REAP, BILLING_REAP, 'billing prefixed its own and is not part of this')
+
+    const metrics = registerJobMetrics(new Metrics())
+    for (const module of ['market', 'trade', 'wallet', 'admin', 'nda'] as const) {
+      metrics.withLabels({ module }).increment('jobs_failed_total', { kind: TRADE_REAP })
+    }
+    const lines = render(metrics).filter((l) => l.includes('kind="idempotency.reap"'))
+    assert.equal(lines.length, 5, `five reapers must be five series:\n${lines.join('\n')}`)
+    for (const line of lines) assert.match(line, / 1$/, 'each module counts its own, not the sum')
+  })
+
+  it('while every other kind this wave brings collides with nothing outside the shared names', () => {
+    // The five that matter most are here: `bot.tick` is the series an operator reads when bots stop
+    // trading, `bot.settle` when performance fees stop booking, and `exchange.transfer` when a
+    // withdrawal that already DEBITED a customer stops completing. None may be summed with anything.
+    const own = [
+      TICK_SWEEP_KIND,
+      TICK_KIND,
+      SETTLE_SWEEP_KIND,
+      SETTLE_KIND,
+      BACKTEST_KIND,
+      MAINTAIN_SWEEP_KIND,
+      MAINTAIN_KIND,
+      TRANSFER_SWEEP_KIND,
+      TRANSFER_KIND,
+      RATE_REAP_KIND,
+      // wallet's four, and they are the series an operator reads when a deposit stops crediting or
+      // a withdrawal stops paying out. None may be summed with anything.
+      WATCH_KIND,
+      POST_CREDIT_KIND,
+      RESERVE_KIND,
+      WITHDRAWAL_SWEEP_KIND,
+      // admin's three. `audit.verify` must not be summed with anything: it is the series that says
+      // whether the estate's tamper-evidence is still being checked.
+      AUDIT_VERIFY,
+      APPROVALS_EXPIRE,
+      BACKUP_SCHEDULE,
+      // emberkin's and aetherholm's. nda's `achievement.*` pair is counted separately below,
+      // because it is a collision rather than an own name.
+      SEASON_ROLLOVER_KIND,
+      SEASON_REWARD_KIND,
+      SEASON_ENSURE_KIND,
+      CITY_QUEUE_KIND,
+      FLEET_KIND,
+      SIEGE_KIND,
+      SEASON_CLOSE_KIND,
+      WORLD_SWEEP_KIND,
+      WORLD_TICK_KIND,
+      EMBERKIN_ACH_SWEEP,
+      EMBERKIN_ACH_DELIVER,
+    ]
+    assert.equal(new Set(own).size, own.length, `two M5d kinds share a value: ${own.join(', ')}`)
+    for (const shared of ['outbox.relay', 'retention', 'rollup', 'idempotency.reap']) {
+      assert.ok(!own.includes(shared), `${shared} is a shared name and is counted separately`)
+    }
+    // And against every other module's own kinds, which is the check that would have caught
+    // `idempotency.reap` before it shipped.
+    const others = [
+      COMMUNITY_TRANSITION,
+      COMMUNITY_EXECUTE,
+      COMMUNITY_RECHECK,
+      AUCTION_CLOSE_KIND,
+      AUCTION_SWEEP_KIND,
+      PAYOUT_KIND,
+      PAYOUT_SWEEP_KIND,
+      MARKET_EXPIRE,
+      BILLING_EXPIRE,
+      RENEW_KIND,
+      RENEWAL_SCAN_KIND,
+      RECYCLE_KIND,
+      DEPLOY_KIND,
+      MINT_SWEEP,
+      PROVISION_KIND,
+      WORLDS_SWEEP,
+      WARD_MINT_KIND,
+      PARCEL_SETTLE_KIND,
+      KILN_FIRE_KIND,
+      INBOX_PRUNE_KIND,
+      RECORD_PRUNE_KIND,
+      DISPATCH_KIND,
+      DIGEST_KIND,
+      BROADCAST_KIND,
+      GROOM_KIND,
+      COHORT_KIND,
+      ...FORESIGHT_KINDS.filter((k) => k !== 'outbox.relay'),
+    ]
+    for (const kind of own) {
+      assert.ok(!others.includes(kind), `${kind} is already another module's job kind`)
+    }
+  })
+
+  it('and hub registers no job kind at all, because it has no queue', () => {
+    // A backend-for-frontend owns no database, so it has no `jobs` table to claim from and no
+    // runner to claim with. There is nothing to import from a `hub/jobs.ts`, and the absence of
+    // that file is the assertion — stated here so "hub's jobs are missing from this file" reads as
+    // a claim rather than an oversight the next wave copies.
+    assert.equal(existsSync(new URL('./hub/jobs.ts', import.meta.url)), false, 'hub has no job plane')
+  })
+
+  it('and `achievement.sweep`/`achievement.deliver` are emberkin’s AND nda’s, which is the second pair', () => {
+    /*
+     * Two unrelated achievement bridges, into two different `worlds` profiles, in two unrelated
+     * databases. `retention` (four ways) and `rollup` (two) are the estate's other near-ordinary
+     * names; this pair is a THIRD, and it arrived inside emberkin at wave M4a rather than in this
+     * one — it is pinned here because M5d is the wave that put it beside seventeen other modules'
+     * job metrics on one `/metrics` page.
+     */
+    assert.equal(NDA_ACH_SWEEP, EMBERKIN_ACH_SWEEP, 'the collision is real, character for character')
+    assert.equal(NDA_ACH_DELIVER, EMBERKIN_ACH_DELIVER)
+    assert.equal(EMBERKIN_ACH_SWEEP, 'achievement.sweep')
+    assert.equal(EMBERKIN_ACH_DELIVER, 'achievement.deliver')
+
+    const metrics = registerJobMetrics(new Metrics())
+    for (const module of ['emberkin', 'nda'] as const) {
+      metrics.withLabels({ module }).increment('jobs_dead_total', { kind: EMBERKIN_ACH_DELIVER })
+    }
+    const lines = render(metrics).filter((l) => l.includes('kind="achievement.deliver"'))
+    assert.equal(lines.length, 2, `two bridges must be two series:\n${lines.join('\n')}`)
+    for (const line of lines) assert.match(line, / 1$/, 'each module counts its own, not the sum')
   })
 })

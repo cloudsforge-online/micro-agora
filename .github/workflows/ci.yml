@@ -57,7 +57,9 @@ jobs:
         MARKET_DATABASE_URL BILLING_DATABASE_URL MINT_DATABASE_URL
         FORESIGHT_DATABASE_URL WORLDS_DATABASE_URL TESSERA_DATABASE_URL
         ACTIVITY_DATABASE_URL NOTIFY_DATABASE_URL LANTERN_DATABASE_URL
-        ANALYTICS_DATABASE_URL
+        ANALYTICS_DATABASE_URL TRADE_DATABASE_URL WALLET_DATABASE_URL
+        ADMIN_API_DATABASE_URL EMBERKIN_DATABASE_URL AETHERHOLM_DATABASE_URL
+        NDA_DATABASE_URL
       # The port the IMAGE binds, which is what the smoke test probes — `src/env.ts` defaults PORT
       # to 4150 and nothing below sets it. The estate overrides PORT to 4000 like every other
       # service and maps 127.0.0.1:4150 to it; that is a deployment fact and not this one.
@@ -136,6 +138,50 @@ jobs:
       # /secrets does not guard them, and a typed placeholder is exactly what the boot guard permits
       # where a secret-shaped literal is refused. That this block grew by nineteen lines IS the
       # commerce/games merge stated as configuration.
+      # ── WHAT WAVE M5d ADDED: FIVE LINES, AND ONE DATABASE ───────────────────────────────────
+      #
+      # `WALLET_URL`, `IDENTITY_URL`, `ACTIVITY_URL` and `NOTIFY_URL` are four of the EIGHT upstream
+      # URLs hub's `env.ts` requires at import; the other four (`LEDGER_URL`, `BILLING_URL`,
+      # `PRICING_URL`, `POLICY_URL`) are already above under the same estate-wide names. hub is the
+      # one module here that declares NO database, which is why no `HUB_DATABASE_URL` joins the
+      # list above.
+      #
+      # `TRADE_SERVICE_TOKEN` is trade's own scoped credential (SD-05), and it is the
+      # `ci-only-not-a-real-token-…` shape rather than `@generate` for the same reason billing's and
+      # mint's are: it is a static bearer this module PRESENTS, `@cloudsforge/secrets` does not
+      # guard that shape, and nothing in the smoke test verifies it against anything.
+      # `TRADE_DATABASE_URL` joins `database-env-var` above, which is what makes
+      # `TRADE_TEST_DATABASE_URL` exist for `src/trade/*.test.ts` — without it those suites SKIP,
+      # and the shared workflow fails the build on a skip it provided a database for.
+      # `WALLET_DATABASE_URL` joins it for the same reason.
+      #
+      # wallet's two remaining boot-REQUIRED variables are the SIWE challenge pair: they are the
+      # domain and URI a user's wallet signs over, so a wrong value is a signature that verifies
+      # against the wrong site. Non-secrets, and `.test` deliberately — a CI literal that named the
+      # real apex would be a working challenge for the production domain sitting in a public file.
+      # Its other four upstreams (`LEDGER_URL`, `CUSTODY_URL`, `INDEXER_URL`, `PRICING_URL`) are
+      # already above under the same estate-wide names, and `WALLET_IDENTITY_CREDENTIAL` is
+      # deliberately optional — its absence is caught by `/readyz`, which is a check that can fail,
+      # rather than by a boot CI cannot perform.
+      #
+      # admin's four: `MARKET_URL` and `NDA_URL` are the two peers no other module names (its other
+      # six — `IDENTITY_*`, `LEDGER_URL`, `NOTIFY_URL`, `BILLING_URL` — are already above).
+      # `ADMIN_API_ESTATE_ENVIRONMENT` is the value `estate_identity` is claimed with on first boot
+      # and COMPARED against on every boot after; `development` here, as admin-api's own CI used,
+      # because the smoke database is created and destroyed with the job. It is not decoration: a
+      # wrong value poisons every backup taken afterwards, because a restore is refused on it by
+      # `restore_runs_environment_matches()`.
+      # `ADMIN_API_IDENTITY_CREDENTIAL=@credential` is optional to BOOT and set anyway, for the
+      # reason admin-api's own workflow gave: a smoke test that booted the credential-less mode
+      # would be testing the configuration micro-org #222 exists to retire.
+      #
+      # emberkin's THREE databases, and one URL. `EMBERKIN_DATABASE_URL`, `AETHERHOLM_DATABASE_URL`
+      # and `NDA_DATABASE_URL` all join `database-env-var` because emberkin is itself a merged
+      # process — one factory call, three titles, three schemas asserted before the listener binds.
+      # `WORLDS_URL` is the one peer no other module names; `LEDGER_URL`, `BILLING_URL` and the
+      # `IDENTITY_*` pair are already above. `EMBERKIN_IDENTITY_CREDENTIAL` is `@credential` rather
+      # than `EMBERKIN_SERVICE_TOKEN`, because the static-token mode is the defect micro-org#228
+      # exists to retire and a smoke test that booted it would be testing that.
       smoke-env: |
         IDENTITY_JWKS_URL=http://127.0.0.1:4001/.well-known/jwks.json
         IDENTITY_ISSUER=http://127.0.0.1:4001
@@ -169,6 +215,19 @@ jobs:
         ANALYTICS_TOKEN=@generate
         ANALYTICS_PSEUDONYM_KEY=@generate
         ANALYTICS_DELIVERY_SECRETS=@generate
+        WALLET_URL=http://127.0.0.1:4010
+        IDENTITY_URL=http://127.0.0.1:4001
+        ACTIVITY_URL=http://127.0.0.1:4011
+        NOTIFY_URL=http://127.0.0.1:4012
+        TRADE_SERVICE_TOKEN=ci-only-not-a-real-token-0000000000000
+        WALLET_CHALLENGE_DOMAIN=cloudsforge.test
+        WALLET_CHALLENGE_URI=https://cloudsforge.test/login
+        MARKET_URL=http://127.0.0.1:4013
+        NDA_URL=http://127.0.0.1:4116
+        ADMIN_API_ESTATE_ENVIRONMENT=development
+        ADMIN_API_IDENTITY_CREDENTIAL=@credential
+        WORLDS_URL=http://127.0.0.1:4118
+        EMBERKIN_IDENTITY_CREDENTIAL=@credential
     secrets:
       # @cloudsforge/* resolves by link:../runtime and link:../contracts, so CI checks out
       # micro-runtime and micro-contracts as siblings — both private, so the workflow needs a

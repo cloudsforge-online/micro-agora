@@ -59,6 +59,20 @@ import { migrateTestDb as migrateActivityDb, openDb as openActivityDb } from '..
 import { migrateTestDb as migrateNotifyDb, openDb as openNotifyDb } from '../activity/notify/testsupport.ts'
 import { migrateTestDb as migrateLanternDb, openDb as openLanternDb } from '../lantern/testsupport.ts'
 import { migrateTestDb as migrateAnalyticsDb, openDb as openAnalyticsDb } from '../lantern/analytics/testsupport.ts'
+// ── WAVE M5d ──────────────────────────────────────────────────────────────────────────────────
+//
+// trade's own harness and DSN. hub has NEITHER, and that is why only one line joins here: hub owns
+// no database, declares no `HUB_DATABASE_URL`, and its `testsupport.ts` names no test DSN at all —
+// `../suitecomposition.test.ts` records that as a claim rather than letting it read as a harness
+// that lost its variable.
+import { migrateTestDb as migrateTradeDb, openDb as openTradeDb } from '../trade/testsupport.ts'
+import { migrateTestDb as migrateWalletDb, openDb as openWalletDb } from '../wallet/testsupport.ts'
+import { migrateTestDb as migrateAdminDb, openDb as openAdminDb } from '../admin/testsupport.ts'
+// THREE more from one factory call: emberkin is itself a merged process, and each title asserts
+// its own schema before the listener binds.
+import { migrateTestDb as migrateEmberkinDb, openDb as openEmberkinDb } from '../emberkin/testsupport.ts'
+import { migrateTestDb as migrateAetherholmDb, openDb as openAetherholmDb } from '../emberkin/aetherholm/testsupport.ts'
+import { migrateTestDb as migrateNdaDb, openDb as openNdaDb } from '../emberkin/nda/testsupport.ts'
 
 /*
  * ── WAVE M5a: THIS BOOTS THE MERGED PROCESS, NOT THIS MODULE ──────────────────────────────────
@@ -115,6 +129,12 @@ const MERGED_TEST_DSNS = {
   NOTIFY_DATABASE_URL: 'NOTIFY_TEST_DATABASE_URL',
   LANTERN_DATABASE_URL: 'LANTERN_TEST_DATABASE_URL',
   ANALYTICS_DATABASE_URL: 'ANALYTICS_TEST_DATABASE_URL',
+  TRADE_DATABASE_URL: 'TRADE_TEST_DATABASE_URL',
+  WALLET_DATABASE_URL: 'WALLET_TEST_DATABASE_URL',
+  ADMIN_API_DATABASE_URL: 'ADMIN_API_TEST_DATABASE_URL',
+  EMBERKIN_DATABASE_URL: 'EMBERKIN_TEST_DATABASE_URL',
+  AETHERHOLM_DATABASE_URL: 'AETHERHOLM_TEST_DATABASE_URL',
+  NDA_DATABASE_URL: 'NDA_TEST_DATABASE_URL',
 } as const
 
 const missingDsn = Object.values(MERGED_TEST_DSNS).filter((name) => {
@@ -217,6 +237,46 @@ function spawnService(
       // notify builds the link in a notification from this. A loopback origin: the boot must not
       // depend on a peer, and nothing in a boot sends a notification.
       NOTIFY_PUBLIC_URL: 'http://127.0.0.1:4111',
+      // ── WAVE M5d: hub's boot-REQUIRED upstreams ─────────────────────────────────────────────
+      //
+      // hub's `env.ts` demands EIGHT upstream URLs at import and `process.exit(1)`s without any
+      // one of them. Four are already set above for other modules (`LEDGER_URL`, `BILLING_URL`,
+      // `PRICING_URL`, `POLICY_URL`); these are the remaining four. Loopback DEAD ports, like
+      // every other peer here — a boot must not depend on a peer, and hub dials none during one.
+      //
+      // The M5b wave-30 failure was this exact shape one file over — `agora-migrate` died on
+      // `community … LEDGER_BASE_URL is required`, because the migrator imports every module and
+      // every `env.ts` validates at IMPORT. hub is the one module that does NOT reach the
+      // migrator: it declares no migration targets, so `../migrator.ts` never imports
+      // `../hub/module.ts` and never brings `../hub/env.ts` into scope. These four are needed by
+      // the SERVER pod and by nothing else — which is a fact worth being sure of rather than
+      // assuming in either direction.
+      WALLET_URL: 'http://127.0.0.1:4112',
+      IDENTITY_URL: 'http://127.0.0.1:4113',
+      ACTIVITY_URL: 'http://127.0.0.1:4114',
+      NOTIFY_URL: 'http://127.0.0.1:4115',
+      // trade's own scoped credential (SD-05), REQUIRED at import by `../trade/env.ts`. The
+      // `ci-only-not-a-real-token-…` shape rather than a generated one, for the same reason
+      // billing's and mint's are: it is a static bearer this module PRESENTS, so
+      // `@cloudsforge/secrets` does not guard the shape, and nothing in a boot verifies it.
+      TRADE_SERVICE_TOKEN: 'ci-only-not-a-real-token-0000000000000',
+      // wallet's two remaining boot-REQUIRED variables: the SIWE challenge pair a user's wallet
+      // signs over. `.test` deliberately — a fixture naming the real apex would be a working
+      // challenge for the production domain sitting in a test file. Its four upstream URLs
+      // (`LEDGER_URL`, `CUSTODY_URL`, `INDEXER_URL`, `PRICING_URL`) are already set above.
+      WALLET_CHALLENGE_DOMAIN: 'cloudsforge.test',
+      WALLET_CHALLENGE_URI: 'https://cloudsforge.test/login',
+      // admin's four boot-REQUIRED extras. `MARKET_URL` and `NDA_URL` are the two peers no other
+      // module names; `ADMIN_API_ESTATE_ENVIRONMENT` is the value `estate_identity` is claimed
+      // with on first boot and COMPARED against afterwards — a boot with a different value refuses
+      // to serve, which is the point of it, so it must be stable across every case in this file.
+      MARKET_URL: 'http://127.0.0.1:4116',
+      NDA_URL: 'http://127.0.0.1:4117',
+      ADMIN_API_ESTATE_ENVIRONMENT: 'development',
+      // emberkin's one remaining peer. `LEDGER_URL`, `BILLING_URL` and the `IDENTITY_*` pair are
+      // already set above, and aetherholm requires no upstream at all — it calls nothing, which is
+      // the property emberkin absorbed it on.
+      WORLDS_URL: 'http://127.0.0.1:4118',
       LOG_LEVEL: 'info',
       // No Foundry credential: booting must never depend on a spend credential, and a boot test
       // that could spend money is a boot test nobody runs.
@@ -335,7 +395,8 @@ async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
 let schema: Promise<void> | null = null
 function migratedSchema(): Promise<void> {
   return (schema ??= (async () => {
-    // SIXTEEN schemas, because the merged process asserts sixteen before it listens. Each module's own
+    // TWENTY-TWO schemas, because the merged process asserts twenty-two before it listens.
+    // Twenty-three modules, twenty-two databases: hub owns none. Each module's own
     // `migrateTestDb` runs that module's own `MIGRATIONS` against that module's own DSN — never a
     // shared handle, for the reason `../migratortargets.ts` refuses at runtime: `inbox` and `jobs`
     // exist in all twelve, so one shared database is two `create table inbox` racing and the later
@@ -357,6 +418,12 @@ function migratedSchema(): Promise<void> {
       ['notify', openNotifyDb, migrateNotifyDb],
       ['lantern', openLanternDb, migrateLanternDb],
       ['analytics', openAnalyticsDb, migrateAnalyticsDb],
+      ['trade', openTradeDb, migrateTradeDb],
+      ['wallet', openWalletDb, migrateWalletDb],
+      ['admin', openAdminDb, migrateAdminDb],
+      ['emberkin', openEmberkinDb, migrateEmberkinDb],
+      ['aetherholm', openAetherholmDb, migrateAetherholmDb],
+      ['nda', openNdaDb, migrateNdaDb],
     ]
     for (const [name, open, migrate] of modules) {
       const sql = open()

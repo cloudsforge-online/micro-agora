@@ -1,0 +1,728 @@
+{
+  "title": "Emberkin: Resonance",
+  "startRegion": "emberfall_vale",
+  "starters": [
+    "cindercub",
+    "tidepup",
+    "seedling"
+  ],
+  "regions": [
+    {
+      "id": "emberfall_vale",
+      "name": "Emberfall Vale",
+      "act": 1,
+      "wildKin": [
+        {
+          "species": "cindercub",
+          "levels": [
+            3,
+            6
+          ],
+          "weight": 20
+        },
+        {
+          "species": "coalcrawl",
+          "levels": [
+            3,
+            7
+          ],
+          "weight": 25
+        },
+        {
+          "species": "pebblit",
+          "levels": [
+            4,
+            8
+          ],
+          "weight": 20
+        },
+        {
+          "species": "joltmouse",
+          "levels": [
+            3,
+            6
+          ],
+          "weight": 20
+        },
+        {
+          "species": "seedling",
+          "levels": [
+            4,
+            7
+          ],
+          "weight": 15
+        }
+      ],
+      "nodes": [
+        "awakening",
+        "first_bond",
+        "kaine_intro",
+        "hollow_raid",
+        "relic_shard",
+        "seal_ember",
+        "departure"
+      ]
+    },
+    {
+      "id": "tidalreach",
+      "name": "Tidalreach",
+      "act": 2,
+      "wildKin": [
+        {
+          "species": "tidepup",
+          "levels": [
+            8,
+            12
+          ],
+          "weight": 20
+        },
+        {
+          "species": "finnling",
+          "levels": [
+            9,
+            13
+          ],
+          "weight": 25
+        },
+        {
+          "species": "frostkit",
+          "levels": [
+            9,
+            13
+          ],
+          "weight": 20
+        },
+        {
+          "species": "snowseal",
+          "levels": [
+            10,
+            14
+          ],
+          "weight": 20
+        },
+        {
+          "species": "mistling",
+          "levels": [
+            11,
+            15
+          ],
+          "weight": 15
+        }
+      ],
+      "nodes": [
+        "frozen_tide",
+        "seal_tide",
+        "driftfolk",
+        "kaine_doubt",
+        "seal_frost",
+        "hollow_pursuit"
+      ]
+    },
+    {
+      "id": "verdant_spire",
+      "name": "The Verdant Spire",
+      "act": 2,
+      "wildKin": [
+        {
+          "species": "mossbug",
+          "levels": [
+            16,
+            20
+          ],
+          "weight": 25
+        },
+        {
+          "species": "sporeling",
+          "levels": [
+            17,
+            21
+          ],
+          "weight": 20
+        },
+        {
+          "species": "thornling",
+          "levels": [
+            18,
+            22
+          ],
+          "weight": 20
+        },
+        {
+          "species": "seedling",
+          "levels": [
+            16,
+            19
+          ],
+          "weight": 20
+        },
+        {
+          "species": "beetlord",
+          "levels": [
+            20,
+            24
+          ],
+          "weight": 10
+        }
+      ],
+      "nodes": [
+        "spire_ascent",
+        "sella_truth",
+        "seal_verdant",
+        "kaine_fall"
+      ]
+    },
+    {
+      "id": "galecrest",
+      "name": "Galecrest",
+      "act": 3,
+      "wildKin": [
+        {
+          "species": "breezlet",
+          "levels": [
+            24,
+            28
+          ],
+          "weight": 25
+        },
+        {
+          "species": "skywisp",
+          "levels": [
+            26,
+            30
+          ],
+          "weight": 20
+        },
+        {
+          "species": "driftwisp",
+          "levels": [
+            27,
+            31
+          ],
+          "weight": 15
+        },
+        {
+          "species": "zaplet",
+          "levels": [
+            26,
+            30
+          ],
+          "weight": 20
+        },
+        {
+          "species": "stormcrow",
+          "levels": [
+            30,
+            34
+          ],
+          "weight": 10
+        }
+      ],
+      "nodes": [
+        "skymills",
+        "seal_gale",
+        "vesh_reveal",
+        "seal_spark",
+        "kaine_confront"
+      ]
+    },
+    {
+      "id": "sunken_cathedral",
+      "name": "The Sunken Cathedral",
+      "act": 3,
+      "wildKin": [
+        {
+          "species": "shadepup",
+          "levels": [
+            34,
+            38
+          ],
+          "weight": 25
+        },
+        {
+          "species": "nocthound",
+          "levels": [
+            36,
+            40
+          ],
+          "weight": 20
+        },
+        {
+          "species": "duskmoth",
+          "levels": [
+            37,
+            41
+          ],
+          "weight": 15
+        },
+        {
+          "species": "gleamoth",
+          "levels": [
+            35,
+            39
+          ],
+          "weight": 15
+        },
+        {
+          "species": "umbrawulf",
+          "levels": [
+            40,
+            44
+          ],
+          "weight": 10
+        }
+      ],
+      "nodes": [
+        "cathedral_descent",
+        "hollow_heart",
+        "seal_umbra",
+        "nyxaroth_wakes",
+        "kaine_resolution"
+      ]
+    },
+    {
+      "id": "lumen_core",
+      "name": "The Lumen Core",
+      "act": 4,
+      "wildKin": [
+        {
+          "species": "dawnfawn",
+          "levels": [
+            45,
+            49
+          ],
+          "weight": 25
+        },
+        {
+          "species": "gleamoth",
+          "levels": [
+            45,
+            49
+          ],
+          "weight": 20
+        },
+        {
+          "species": "radimoth",
+          "levels": [
+            48,
+            52
+          ],
+          "weight": 15
+        },
+        {
+          "species": "solaris",
+          "levels": [
+            52,
+            55
+          ],
+          "weight": 5
+        },
+        {
+          "species": "aetherion",
+          "levels": [
+            53,
+            55
+          ],
+          "weight": 3
+        }
+      ],
+      "nodes": [
+        "core_ascension",
+        "seal_lumen",
+        "solaris_trial",
+        "vesh_final",
+        "resonance_finale",
+        "epilogue"
+      ]
+    }
+  ],
+  "sealWardens": [
+    {
+      "id": "seal_ember",
+      "name": "Warden Torch Halvo",
+      "type": "ember",
+      "team": [
+        {
+          "species": "coalcrawl",
+          "level": 11
+        },
+        {
+          "species": "cindercub",
+          "level": 12
+        },
+        {
+          "species": "cinderpyre",
+          "level": 13
+        }
+      ],
+      "reward": "ember_seal"
+    },
+    {
+      "id": "seal_tide",
+      "name": "Warden Brine Coralis",
+      "type": "tide",
+      "team": [
+        {
+          "species": "finnling",
+          "level": 17
+        },
+        {
+          "species": "mistling",
+          "level": 17
+        },
+        {
+          "species": "tidalhound",
+          "level": 19
+        }
+      ],
+      "reward": "tide_seal"
+    },
+    {
+      "id": "seal_frost",
+      "name": "Warden Rime Isolde",
+      "type": "frost",
+      "team": [
+        {
+          "species": "frostkit",
+          "level": 21
+        },
+        {
+          "species": "snowseal",
+          "level": 21
+        },
+        {
+          "species": "glacielle",
+          "level": 23
+        }
+      ],
+      "reward": "frost_seal"
+    },
+    {
+      "id": "seal_verdant",
+      "name": "Warden Thornwood Bael",
+      "type": "verdant",
+      "team": [
+        {
+          "species": "mossbug",
+          "level": 26
+        },
+        {
+          "species": "sporeling",
+          "level": 26
+        },
+        {
+          "species": "thornling",
+          "level": 28
+        }
+      ],
+      "reward": "verdant_seal"
+    },
+    {
+      "id": "seal_gale",
+      "name": "Warden Gale Cirra",
+      "type": "gale",
+      "team": [
+        {
+          "species": "breezlet",
+          "level": 32
+        },
+        {
+          "species": "skywisp",
+          "level": 33
+        },
+        {
+          "species": "driftwisp",
+          "level": 34
+        }
+      ],
+      "reward": "gale_seal"
+    },
+    {
+      "id": "seal_spark",
+      "name": "Warden Volt Dyne",
+      "type": "spark",
+      "team": [
+        {
+          "species": "zaplet",
+          "level": 36
+        },
+        {
+          "species": "arcbulb",
+          "level": 36
+        },
+        {
+          "species": "voltrat",
+          "level": 38
+        },
+        {
+          "species": "stormcrow",
+          "level": 39
+        }
+      ],
+      "reward": "spark_seal"
+    },
+    {
+      "id": "seal_umbra",
+      "name": "Warden Dusk Morren",
+      "type": "umbra",
+      "team": [
+        {
+          "species": "shadepup",
+          "level": 42
+        },
+        {
+          "species": "duskmoth",
+          "level": 42
+        },
+        {
+          "species": "nocthound",
+          "level": 43
+        },
+        {
+          "species": "umbrawulf",
+          "level": 45
+        }
+      ],
+      "reward": "umbra_seal"
+    },
+    {
+      "id": "seal_lumen",
+      "name": "Warden Dawn Lucia",
+      "type": "lumen",
+      "team": [
+        {
+          "species": "gleamoth",
+          "level": 48
+        },
+        {
+          "species": "dawnfawn",
+          "level": 48
+        },
+        {
+          "species": "radimoth",
+          "level": 50
+        }
+      ],
+      "reward": "lumen_seal"
+    }
+  ],
+  "story": [
+    {
+      "id": "awakening",
+      "region": "emberfall_vale",
+      "speaker": "Sella",
+      "text": "You flinched just now, didn't you? That low hum under the wind. Most people go their whole lives deaf to the Kin, but you were born listening. Choose one to walk beside you, Warden. The world is fraying, and it will take every bond we can forge to hold it together.",
+      "grantsStarter": true
+    },
+    {
+      "id": "first_bond",
+      "region": "emberfall_vale",
+      "speaker": "Narrator",
+      "text": "The little Kin regards you the way a coal regards a spark, waiting to see if you are worth catching fire for. You feed it from your open palm and it leans its weight into your hand. Somewhere behind your ribs, a second heartbeat answers your own."
+    },
+    {
+      "id": "kaine_intro",
+      "region": "emberfall_vale",
+      "speaker": "Kaine",
+      "text": "Beat me to a starter, did you? Figures. We grew up racing to the orchard wall and you always won by caring less about scraped knees. Come on, then. Let's see if your Kin likes you half as much as mine already loves me.",
+      "rival": true
+    },
+    {
+      "id": "hollow_raid",
+      "region": "emberfall_vale",
+      "speaker": "Sella",
+      "text": "Grey figures pour over the orchard walls, and where they pass the Kin go silent, eyes gone flat, songs cut clean. 'The Hollow,' Sella breathes. 'They've come for the First Resonator. Whatever they touch, they empty. Warden, do not let them touch you.'",
+      "battle": "Hollow Reaver"
+    },
+    {
+      "id": "relic_shard",
+      "region": "emberfall_vale",
+      "speaker": "Sella",
+      "text": "In the smoke you close your hand around a sliver of something older than the Sundering, warm, and singing a chord you feel in your teeth. 'A shard of the First Resonator,' Sella says, hushed like a prayer. 'They crossed a shard-sea for this. Keep it close, and tell no one.'"
+    },
+    {
+      "id": "seal_ember",
+      "region": "emberfall_vale",
+      "speaker": "Warden Torch Halvo",
+      "text": "So the Vale sends me a fledgling with soot on their boots and a legend in their pocket. Good. The Ember Seal isn't given, it's earned in the heat. Show me a bond that doesn't flinch when it burns.",
+      "battle": "seal_ember"
+    },
+    {
+      "id": "departure",
+      "region": "emberfall_vale",
+      "speaker": "Sella",
+      "text": "The Vale can't hold what's coming, and neither can my teaching. Take the shard and the ferry to Tidalreach. Earn the Seals, Warden. Each one is a Concord door that will open when you need it most. And write to me. Even mentors get lonely on the edge of the world."
+    },
+    {
+      "id": "frozen_tide",
+      "region": "tidalreach",
+      "speaker": "Narrator",
+      "text": "Tidalreach greets you mid-crash: a wave three stories high, stopped dead and frozen into blue glass, gulls trapped inside it like flies in amber. The Aether here stutters and skips. Even the sea has forgotten how to finish a thought."
+    },
+    {
+      "id": "seal_tide",
+      "region": "tidalreach",
+      "speaker": "Warden Brine Coralis",
+      "text": "Careful on the ice, little current. Most Wardens fight the tide; I taught mine to become it. Let's find out whether your bond bends, or breaks.",
+      "battle": "seal_tide"
+    },
+    {
+      "id": "driftfolk",
+      "region": "tidalreach",
+      "speaker": "Driftfolk Elder",
+      "text": "We ride the Ley Currents, child, and lately they run wrong, thin in some skies and flooding in others. My grandmother said the world was cut. I think it was stitched, badly, by someone who loved it too much. Trade me that story in your pocket and I'll trade you a warm meal."
+    },
+    {
+      "id": "kaine_doubt",
+      "region": "tidalreach",
+      "speaker": "Kaine",
+      "text": "You're collecting Seals like they're answers. They're not. I've been listening to the Hollow, really listening, and they ask a fair question: if a bond can be severed and it hurts this much, why build one at all? Don't look at me like that. I'm still winning our race.",
+      "rival": true
+    },
+    {
+      "id": "seal_frost",
+      "region": "tidalreach",
+      "speaker": "Warden Rime Isolde",
+      "text": "The frozen tide didn't die, Warden. It's holding its breath, same as this whole broken world. My Kin and I keep the cold honest. Beat us, and I'll trust you to carry something colder still: the truth that's waiting for you up the Spire.",
+      "battle": "seal_frost"
+    },
+    {
+      "id": "hollow_pursuit",
+      "region": "tidalreach",
+      "speaker": "Vesh",
+      "text": "A grey sail shadows your ferry the whole crossing, and never once attacks. When you dock, a single Hollow acolyte presses a note into your hand: no threat, only an address on the Verdant Spire and one line in careful script. 'Come learn why your bond is a wound.'"
+    },
+    {
+      "id": "spire_ascent",
+      "region": "verdant_spire",
+      "speaker": "Narrator",
+      "text": "The Verdant Spire is not a mountain but a tree, a shard-root grown into a green cathedral, its canopy cradling a whole sky's worth of weather. Kin nest in bark the size of city walls. Climbing it, you feel the world briefly remember how it was to be whole."
+    },
+    {
+      "id": "sella_truth",
+      "region": "verdant_spire",
+      "speaker": "Sella",
+      "text": "I flew ahead to tell you myself, before the Hollow does. The Sundering was no disaster, Warden. It was a mending gone wrong. A hundred years ago we tried to bind the whole world into one Resonance and it tore. We didn't break Aurea. We loved it apart. That is the secret the Seals were built to guard."
+    },
+    {
+      "id": "seal_verdant",
+      "region": "verdant_spire",
+      "speaker": "Warden Thornwood Bael",
+      "text": "Sella's told you the hard truth, I can see it in your walk. Good. Grief makes a deeper root than pride ever did. The Verdant Seal is for those who keep growing after the ground gives way. Come, let the Spire weigh your bond.",
+      "battle": "seal_verdant"
+    },
+    {
+      "id": "kaine_fall",
+      "region": "verdant_spire",
+      "speaker": "Kaine",
+      "text": "Vesh showed me the old records. We did this, Warden. Wardens, bonds, all of it. So I'm done pretending love is a strategy. The Hollow gave me control that doesn't beg, doesn't fray, doesn't leave. Don't follow me, and don't you dare look disappointed. You don't get to be my conscience anymore.",
+      "rival": true
+    },
+    {
+      "id": "skymills",
+      "region": "galecrest",
+      "speaker": "Narrator",
+      "text": "Galecrest is all knife-edge cliffs and groaning sky-mills, their sails big as ships turning in a wind that never rests. Wardens shout to be heard and still lose half their words. Below the rails there is only cloud, and the long patient dark of the fall."
+    },
+    {
+      "id": "seal_gale",
+      "region": "galecrest",
+      "speaker": "Warden Gale Cirra",
+      "text": "You'll want to plant your feet up here. Everyone does, and everyone loses. The wind rewards the bond that leans in instead of bracing against it. Show me you and yours can move as one thing, and the Gale Seal is yours.",
+      "battle": "seal_gale"
+    },
+    {
+      "id": "vesh_reveal",
+      "region": "galecrest",
+      "speaker": "Vesh",
+      "text": "So you're the child clutching my First Resonator. I am Vesh, and I am not your villain. I am your mercy. The world frays because it feels, and it feels through bonds like yours. I mean to still it: no more Resonance, no more tearing, no more grief. A quiet world is a kind one. Your friend Kaine understands. Why can't you?"
+    },
+    {
+      "id": "seal_spark",
+      "region": "galecrest",
+      "speaker": "Warden Volt Dyne",
+      "text": "Vesh got to you already? Ha, she works fast. Here's my counter-argument, Warden: nothing truly alive holds still. My Kin crackle because they want to. Take the Spark Seal, then go remind that friend of yours what wanting feels like.",
+      "battle": "seal_spark"
+    },
+    {
+      "id": "kaine_confront",
+      "region": "galecrest",
+      "speaker": "Kaine",
+      "text": "You climbed all this way to save me. That's the cruelty of you, you never could tell the difference between saving someone and refusing to let them go. Fine. Battle me. If your bond is really stronger than my control, prove it in the only language you and I ever spoke honestly.",
+      "battle": "Kaine",
+      "rival": true
+    },
+    {
+      "id": "cathedral_descent",
+      "region": "sunken_cathedral",
+      "speaker": "Narrator",
+      "text": "You descend below the cloud-line into the Sunken Cathedral, a drowned ruin where the light gives up and the Umbra pools like spilled ink. Every footstep is swallowed whole. Here the Hollow built their nave, and here the emptied Kin drift, humming nothing at all."
+    },
+    {
+      "id": "hollow_heart",
+      "region": "sunken_cathedral",
+      "speaker": "Vesh",
+      "text": "Look at them, my quiet choir. It doesn't hurt, being hollow. That's the entire point. I severed my own bond first, Warden, before I ever asked it of anyone else. The ache you feel looking at me? I felt it once too. I simply had the courage to stop."
+    },
+    {
+      "id": "seal_umbra",
+      "region": "sunken_cathedral",
+      "speaker": "Warden Dusk Morren",
+      "text": "The Concord posted me in the dark on purpose, to guard the last Seal before the Core and to remember what the Hollow forgets. Umbra isn't emptiness, child. It's the shape grief takes when it still loves something. Bring me your bond unbroken, and I'll let you pass.",
+      "battle": "seal_umbra"
+    },
+    {
+      "id": "nyxaroth_wakes",
+      "region": "sunken_cathedral",
+      "speaker": "Vesh",
+      "text": "Then meet the truth of severance. Vesh spreads her arms and the drifting nothing coils together, hungry, taking shape: Nyxaroth, the devouring beast, a bond turned inside out into pure appetite. 'This is what's left when you cut the cord,' she says. 'Survive it, and perhaps you've earned your grief.'",
+      "battle": "nyxaroth"
+    },
+    {
+      "id": "kaine_resolution",
+      "region": "sunken_cathedral",
+      "speaker": "Kaine",
+      "text": "You should have let it take me. I froze. Nyxaroth looked at me and I saw exactly what I was becoming, something that devours what it can't keep. Then your Kin stepped between us, for you, for a stranger, and it never even hesitated. I severed my bond because I was terrified it would leave. I never once asked if I was worth staying for. Let me come with you. I want to find out.",
+      "rival": true
+    },
+    {
+      "id": "core_ascension",
+      "region": "lumen_core",
+      "speaker": "Narrator",
+      "text": "The Lumen Core is the wound at the world's center, a shard of pure dawn where the Sundering began, so bright it casts no shadows, only afterimages of everything Aurea has ever loved. Your team's Resonance thrums like a struck bell. Kaine walks a half-step behind you, and for once says nothing."
+    },
+    {
+      "id": "seal_lumen",
+      "region": "lumen_core",
+      "speaker": "Warden Dawn Lucia",
+      "text": "I am the last Seal, and I have waited my whole life for the Warden who reaches the Core with their bonds still intact. There's no lesson left to teach you, only one final door to open. Beat me, and beat me kindly, and the light will know you're ready.",
+      "battle": "seal_lumen"
+    },
+    {
+      "id": "solaris_trial",
+      "region": "lumen_core",
+      "speaker": "Solaris",
+      "text": "Solaris uncoils from the Core's heart, radiant and terrible, the Guardian that has kept this wound from festering for a hundred years. It does not strike; it tests, pressing against every bond you carry to feel whether it will hold weight. Only a team that trusts you completely can walk through its light.",
+      "battle": "solaris"
+    },
+    {
+      "id": "vesh_final",
+      "region": "lumen_core",
+      "speaker": "Vesh",
+      "text": "You reached it. Of course you did, you never learned to let go. Now watch me finish the mending your kind botched a century ago. I will pour the First Resonator into the Core and still every heart at once. No more fraying. No more feeling. I'm not ending the world, Warden. I'm finally giving it peace.",
+      "battle": "Vesh"
+    },
+    {
+      "id": "resonance_finale",
+      "region": "lumen_core",
+      "speaker": "Narrator",
+      "text": "As Vesh forces the shard home, the Core screams, and then answers. Aetherion, the world-serpent, pours out of the light, not to devour but to ask: mend or still, bind or empty, which will you feed me? You reach not for a weapon but for your team, every bond you built, every point of Resonance you earned, and you give it all to the world at once. The choice was never sever or suffer. It was whether love is worth the risk of loss, and your Kin answer for you in one deafening chord.",
+      "battle": "aetherion"
+    },
+    {
+      "id": "epilogue",
+      "region": "lumen_core",
+      "speaker": "Sella",
+      "text": "The frozen wave up in Tidalreach finished its crash today, a hundred years late, and everyone cheered like fools. You didn't fix Aurea, Warden. You reminded it that a bond can hold even when it hurts, and that was enough to begin the healing. Kaine's out there rebuilding a bond of his own now, slowly. Come home when you can. The Vale kept your room, and the Kin still sing your name into the wind."
+    }
+  ]
+}

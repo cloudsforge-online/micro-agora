@@ -533,6 +533,40 @@ export const SPLIT_EVENT_PATHS: Readonly<Record<string, string>> = Object.freeze
   mint: '/v1/events/mint',
   worlds: '/v1/events/worlds',
   tessera: '/v1/events/tessera',
+  // ── WAVE M5d: one more, and the one whose misdelivery is an erasure that never runs ──────────
+  //
+  // trade verifies against `OUTBOX_ACCEPT_SECRETS` falling back to `OUTBOX_SIGNING_SECRET` — a
+  // LIST, so the estate's shared key can be rotated with an overlap window — and the one topic it
+  // subscribes to is `identity.user.deleted`. That is what makes its entry here matter more than
+  // the count suggests: an erasure delivered to another module's inbox is DEDUPLICATED there and
+  // never runs here, so a deleted account's trading history, bots and fills survive with nothing
+  // anywhere saying so. The bare path's 410 is what turns a subscription nobody re-pointed into a
+  // loud failure in the producer's `outbox_deliveries.last_error`.
+  //
+  // hub is absent, and that is a claim rather than an omission: a backend-for-frontend consumes no
+  // bus and owns no inbox. `mergedroutes.test.ts` asserts hub mounts no event path at all.
+  trade: '/v1/events/trade',
+  // admin-api verifies against `OUTBOX_ACCEPT_SECRETS` falling back to `OUTBOX_SIGNING_SECRET`,
+  // and its inbox drives `admin/erasure.ts`. Keyed `admin-api` rather than `admin` because that is
+  // the SERVICE name a producer's `event_subscriptions` row and `estate-bootstrap.sh` already use;
+  // the directory is `admin/` and the two need not agree, but the wire does.
+  //
+  // An unsigned audit intake is a forgery endpoint and a partitioned one is an audit of record
+  // that reads as "nothing happened" — so this path must be the one identity's erasure deliveries
+  // reach, and `estate-bootstrap.sh`'s subscription row moves in the same release.
+  'admin-api': '/v1/events/admin-api',
+  // ── AND THE ONE ENTRY THAT IS THREE MODULES ──────────────────────────────────────────────────
+  //
+  // emberkin's webhook is the only one in this process that FANS OUT: one signature check, then
+  // three sinks — emberkin's, aetherholm's and nda's. That is legitimate here and refused
+  // everywhere else for a measured reason rather than a stylistic one: all three titles read the
+  // same estate-wide `OUTBOX_SIGNING_SECRET`, which `emberkin/mergedupstreams.test.ts` asserts by
+  // reading their `env.ts` files, so a delivery that verifies for one verifies for all three. And
+  // all three subscribe to `identity.user.deleted`, so routing it to one would answer 202 to a
+  // deletion two thirds of which never happened.
+  //
+  // ONE key here, not three — which is exactly the condition the nine entries above do not meet.
+  emberkin: '/v1/events/emberkin',
   // ── WAVE M5c: THE FOUR MODULES THAT ARE NOT HERE, AND WHY THAT IS CORRECT ───────────────────
   //
   // activity, notify and analytics all consume the event bus, and none of them appears above.
