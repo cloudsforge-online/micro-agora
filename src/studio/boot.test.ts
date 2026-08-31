@@ -273,6 +273,16 @@ function spawnService(
       MARKET_URL: 'http://127.0.0.1:4116',
       NDA_URL: 'http://127.0.0.1:4117',
       ADMIN_API_ESTATE_ENVIRONMENT: 'development',
+      // emberkin's credential is REQUIRED, where wallet's and admin's are optional — that module
+      // presents a bearer to billing, the ledger and worlds, and `env.ts` refuses to start without
+      // one rather than letting every such call answer 503 with nothing naming the cause.
+      //
+      // A `cfsc_` CREDENTIAL, not a token and not `randomBytes` base64: `@cloudsforge/secrets`
+      // checks the SHAPE, and base64 is not base64url — a `+` or a `/` in the value is refused.
+      // Minted per run and thrown away, for the micro-org #142 reason every secret in this file
+      // carries: a literal that looks like a placeholder is refused, and one that does not is a
+      // key-shaped string committed to a repository.
+      EMBERKIN_IDENTITY_CREDENTIAL: `cfsc_${randomBytes(32).toString('base64url')}`,
       // emberkin's one remaining peer. `LEDGER_URL`, `BILLING_URL` and the `IDENTITY_*` pair are
       // already set above, and aetherholm requires no upstream at all — it calls nothing, which is
       // the property emberkin absorbed it on.

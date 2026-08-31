@@ -249,7 +249,22 @@ describe('the merged surface', { skip }, () => {
 
     it("answers aetherholm's title contract on the SAME listener and the SAME port", async () => {
       // The route `worlds` calls. Public and unauthenticated by design.
-      const res = await fetch(`${url}/v1/title`);
+      //
+      // ── WAVE M5d: UNDER `/aetherholm`, AND THE PATH IS NOT WHAT MOVED ────────────────────────
+      //
+      // `GET /v1/title` and `POST /v1/provision` are frozen constants in
+      // `@cloudsforge/contracts-worlds` and BOTH aetherholm and tessera mount them. `../index.ts`'s
+      // header refused tessera into this process on exactly that ground; wave M5d puts them in one
+      // process anyway, because tessera has been a module of agora since M5b.
+      //
+      // What moved is this title's BASE URL, not the contract: `worlds/titleclient.ts` composes a
+      // title's address as `base.pathname + FROZEN_SUFFIX`, so a title registered at
+      // `http://agora:4000/aetherholm` is asked for exactly `TITLE_DESCRIPTOR_PATH` at that base.
+      // The suffix `worlds` appends is unchanged, which is why no contract changed.
+      //
+      // The bare path is asserted to be SOMEBODY ELSE'S below rather than merely absent — a 404
+      // here would pass whether the remount worked or the route simply stopped existing.
+      const res = await fetch(`${url}/aetherholm/v1/title`);
       assert.equal(res.status, 200);
       const body = (await res.json()) as { slug: string; capabilities: string[] };
       assert.equal(body.slug, 'aetherholm');
@@ -264,6 +279,19 @@ describe('the merged surface', { skip }, () => {
         body.worlds.some((w) => w.id === ndaWorldId),
         `the seeded world must be served by the merged listener: ${JSON.stringify(body.worlds)}`,
       );
+    });
+
+    it("and the BARE /v1/title is no longer aetherholm's, which is the half that matters", async () => {
+      // In THIS process — emberkin standalone — nothing else mounts it, so the bare path is a 404.
+      // In agora it is TESSERA's, and that is the collision this remount exists to resolve. Both
+      // are the same assertion from this listener's side: aetherholm does not answer here.
+      //
+      // Asserted rather than left implicit, because the failure mode is silent in exactly one
+      // direction: a title left registered at an origin-only base URL is answered by whichever
+      // title kept the path, with a 200, and a player who paid for an archipelago is provisioned
+      // somebody else's product.
+      const res = await fetch(`${url}/v1/title`);
+      assert.equal(res.status, 404);
     });
 
     it('and an unknown path is still one 404 for the whole process', async () => {

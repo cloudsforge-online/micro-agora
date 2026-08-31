@@ -626,9 +626,17 @@ describe('the merged surface', { skip }, () => {
       assert.equal(res.status, 410)
       const reply = (await res.json()) as { error: { code: string; paths: Record<string, string> } }
       assert.equal(reply.error.code, 'events_path_split')
-      // All nine module webhooks, because the 410 body is the process's `SPLIT_EVENT_PATHS` — even
-      // though THIS suite mounts only the M5a five, the bare-path handler names every split the
-      // process serves, and wave M5b added six (community, market, billing, mint, worlds, tessera).
+      // All TWELVE module webhooks, because the 410 body is the process's `SPLIT_EVENT_PATHS` —
+      // even though THIS suite mounts only the M5a five, the bare-path handler names every split
+      // the process serves. Wave M5b added six (community, market, billing, mint, worlds,
+      // tessera) and M5d three more (trade, admin-api, emberkin).
+      //
+      // `hub` and `wallet` are ABSENT and each for its own reason, which is why the map is
+      // asserted whole rather than by membership. hub consumes no bus at all — a
+      // backend-for-frontend owns no inbox to deliver into. wallet's webhook is `POST /events`,
+      // UNVERSIONED: a disjoint third family that nothing else in this process declares, so it
+      // needs no suffix and naming it here would send a producer at a path this 410 does not
+      // describe.
       assert.deepEqual(reply.error.paths, {
         agora: '/v1/events/agora',
         devplatform: '/v1/events/devplatform',
@@ -639,6 +647,9 @@ describe('the merged surface', { skip }, () => {
         mint: '/v1/events/mint',
         worlds: '/v1/events/worlds',
         tessera: '/v1/events/tessera',
+        trade: '/v1/events/trade',
+        'admin-api': '/v1/events/admin-api',
+        emberkin: '/v1/events/emberkin',
       })
     })
 

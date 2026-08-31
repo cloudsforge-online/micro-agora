@@ -96,7 +96,15 @@ export const DEPOSIT_CREDITED = 'wallet.deposit.confirmed'
  * to a user is the one mistake a notification service must never make, so the id it needs is sent
  * rather than inferred.
  */
-export const DEPOSIT_TOKEN_UNCREDITED = 'wallet.deposit.token_uncredited'
+// `TOKEN` in this name is an ERC-20 TOKEN, not a bearer. The value is a published event topic —
+// the same wire string `@cloudsforge/contracts-events` carries — and it authenticates nothing.
+//
+// The finding is new only because the file MOVED. micro-wallet's CI never called the estate's
+// `secret-hygiene` workflow; agora's does, and that audit splits a name into words and refuses
+// `_TOKEN_` beside a 31-character literal. That is the rule that caught the estate administrator's
+// password sitting in a script default (micro-org #276), so it is answered with a reason on the
+// line rather than narrowed to let this shape through everywhere.
+export const DEPOSIT_TOKEN_UNCREDITED = 'wallet.deposit.token_uncredited' // secret-hygiene: allow an ERC-20 token topic name, which is not a bearer credential of any kind
 export const WITHDRAWAL_REQUESTED = 'wallet.withdrawal.requested'
 export const WITHDRAWAL_REFUNDED = 'wallet.withdrawal.refunded'
 export const WITHDRAWAL_STUCK = 'wallet.withdrawal.stuck'
