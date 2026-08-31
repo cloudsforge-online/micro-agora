@@ -300,6 +300,20 @@ function spawnService(
       // carries: a literal that looks like a placeholder is refused, and one that does not is a
       // key-shaped string committed to a repository.
       EMBERKIN_IDENTITY_CREDENTIAL: `cfsc_${randomBytes(32).toString('base64url')}`,
+      // ── THE THREE OPTIONAL CREDENTIALS THAT ARE NOT OPTIONAL TO /readyz ─────────────────────
+      //
+      // `optionalCredential` in each module's `env.ts`, so a boot without them SUCCEEDS — and then
+      // `serviceTokenProbe` marks `identity-credential` (hub), `identity-credential` (wallet) and
+      // `nda-identity-credential` HARD-failed, and the merged `/readyz` answers 503 for ever. A
+      // process that listens and is never ready is not a boot this file can assert anything about,
+      // and the distinction is the whole point of the probes: absent at boot is survivable, absent
+      // at readiness is a replica that must take no traffic.
+      //
+      // Minted per run for the micro-org #142 reason the two above carry, and `cfsc_`-shaped
+      // because `@cloudsforge/secrets` refuses anything else — including base64 with a `+` or `/`.
+      HUB_API_IDENTITY_CREDENTIAL: `cfsc_${randomBytes(32).toString('base64url')}`,
+      WALLET_IDENTITY_CREDENTIAL: `cfsc_${randomBytes(32).toString('base64url')}`,
+      NDA_IDENTITY_CREDENTIAL: `cfsc_${randomBytes(32).toString('base64url')}`,
       // emberkin's one remaining peer. `LEDGER_URL`, `BILLING_URL` and the `IDENTITY_*` pair are
       // already set above, and aetherholm requires no upstream at all — it calls nothing, which is
       // the property emberkin absorbed it on.
@@ -526,10 +540,20 @@ test('THE WIRING: the running service 503s when its root goes unwritable', { ski
       // Ready, with no image backend configured — `degraded` on the SOFT probe and still 200,
       // which is the behaviour the asset-root probe must not copy.
       const before = await fetch(`${url}/readyz`)
-      assert.equal(before.status, 200)
       const body = (await before.json()) as {
         checks: { name: string; kind: string; state: string; detail?: string }[]
       }
+      // The BODY before the status, so a 503 here names the probe that failed. Read in this order
+      // deliberately: a bare `503 !== 200` from a nineteen-module `/readyz` costs a CI round trip
+      // to attribute, and this endpoint already knows the answer.
+      assert.equal(
+        before.status,
+        200,
+        `not ready before the incident: ${body.checks
+          .filter((c) => c.state !== 'pass')
+          .map((c) => `${c.name}(${c.kind}/${c.state}) ${c.detail ?? ''}`)
+          .join('; ')}`,
+      )
       const root200 = body.checks.find((c) => c.name === 'asset-root')
       assert.ok(root200, 'index.ts must register the asset-root probe — it was not in /readyz')
       assert.equal(root200.kind, 'hard')
