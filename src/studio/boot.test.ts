@@ -67,7 +67,18 @@ import { migrateTestDb as migrateAnalyticsDb, openDb as openAnalyticsDb } from '
 // that lost its variable.
 import { migrateTestDb as migrateTradeDb, openDb as openTradeDb } from '../trade/testsupport.ts'
 import { migrateTestDb as migrateWalletDb, openDb as openWalletDb } from '../wallet/testsupport.ts'
-import { migrateTestDb as migrateAdminDb, openDb as openAdminDb } from '../admin/testsupport.ts'
+import {
+  migrateTestDb as migrateAdminDb,
+  openDb as openAdminDb,
+  // The environment admin's OWN harness claims `estate_identity` with, imported rather than
+  // spelled. Both this file and every admin suite drive the same `admin_api_test` database, the
+  // row is claimed by whichever reaches it first, and it is IMMUTABLE BY TRIGGER thereafter —
+  // so a second value here is not a disagreement that gets overwritten, it is a boot refusal:
+  // `claimEstateIdentity` throws, `createAdminModule` rejects, and the merged process shuts
+  // down cleanly having never listened. Which is exactly what it is for, and exactly why the
+  // two must be one constant.
+  TEST_ENVIRONMENT as ADMIN_TEST_ENVIRONMENT,
+} from '../admin/testsupport.ts'
 // THREE more from one factory call: emberkin is itself a merged process, and each title asserts
 // its own schema before the listener binds.
 import { migrateTestDb as migrateEmberkinDb, openDb as openEmberkinDb } from '../emberkin/testsupport.ts'
@@ -270,9 +281,15 @@ function spawnService(
       // module names; `ADMIN_API_ESTATE_ENVIRONMENT` is the value `estate_identity` is claimed
       // with on first boot and COMPARED against afterwards — a boot with a different value refuses
       // to serve, which is the point of it, so it must be stable across every case in this file.
+      //
+      // AND ACROSS EVERY OTHER FILE IN THE SUITE, which is the part that is not obvious and cost a
+      // CI run: `admin_api_test` is shared with admin's own suites, whose `resetAdminApi` claims it
+      // as `ADMIN_TEST_ENVIRONMENT`. Whichever runs first writes the row; the trigger then refuses
+      // every update and delete. A literal `development` here therefore did not lose a race — it
+      // lost every one of them, and the merged process shut down cleanly without ever listening.
       MARKET_URL: 'http://127.0.0.1:4116',
       NDA_URL: 'http://127.0.0.1:4117',
-      ADMIN_API_ESTATE_ENVIRONMENT: 'development',
+      ADMIN_API_ESTATE_ENVIRONMENT: ADMIN_TEST_ENVIRONMENT,
       // emberkin's credential is REQUIRED, where wallet's and admin's are optional — that module
       // presents a bearer to billing, the ledger and worlds, and `env.ts` refuses to start without
       // one rather than letting every such call answer 503 with nothing naming the cause.
