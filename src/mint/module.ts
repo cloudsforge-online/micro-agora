@@ -36,6 +36,7 @@ import postgres from 'postgres'
 import { assertSchemaAtLeast, networkSql, type Sql as DbSql, type Sql as RuntimeSql } from '@cloudsforge/db'
 import { JobQueue, JobRunner, type Sql as JobsSql } from '@cloudsforge/jobs'
 import { serviceTokenProbe } from '@cloudsforge/auth'
+import { NO_SCOPES_REQUIRED } from '@cloudsforge/contracts-auth'
 import { HttpClient } from '@cloudsforge/http'
 import type { Probe } from '@cloudsforge/lifecycle'
 import { httpProbe, postgresProbe } from '@cloudsforge/lifecycle'
@@ -73,6 +74,32 @@ import type { DeployDeps } from './deploy.ts'
  * ══════════════════════════════════════════════════════════════════════════════════════════════
  */
 export const MODULE_LABEL = 'mint'
+
+/**
+ * THE JSON-RPC PEERS IN THIS FILE GET NO ESTATE CREDENTIAL, AND THIS SAYS SO.
+ *
+ * They dial public chain nodes outside this estate. There is no route of ours behind them, no
+ * principal to be, and nothing an estate scope could authorise — so the honest declaration is that
+ * this module needs none, not silence.
+ *
+ * Mint's real outbound demands are declared where their call sites are — `./custodyclient.ts`,
+ * `./indexerclient.ts` and `./ledgerclient.ts` — and `buildUpstreams` hands those clients the
+ * service token. The scope is named by the module that can be checked against the route it dials,
+ * never by the composition root.
+ *
+ * It has to be said out loud rather than left silent because `micro-deploy`'s `derive-grants.mjs`
+ * reads any module that builds an `HttpClient` and names a bearer ANYWHERE in the file as one
+ * presenting an estate credential, and this file mentions `serviceTokenProbe` and the identity
+ * tokens a few lines up. The test is deliberately loose and should stay that way: narrowing it to
+ * the constructor call once missed `admin-api/src/upstreams.ts`, which attaches its bearer sixteen
+ * lines later, and a false negative there produces NO grant at all rather than a wrong one.
+ *
+ * **Carried over from `mint/src/index.ts:191`, where the merge left it behind.** The pre-merge file
+ * declared exactly this beside exactly this client; converting mint into a module moved the client
+ * and not the declaration, and `derive-grants --check` went red naming a file that had never been
+ * silent about anything. That is the check working — the declaration travels with the code.
+ */
+export const RPC_SCOPES = NO_SCOPES_REQUIRED
 
 /** What the host process supplies. Deliberately nothing this module could hide a handle inside. */
 export interface HostRuntime {
