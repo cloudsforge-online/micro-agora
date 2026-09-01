@@ -2131,6 +2131,76 @@ export const MIGRATIONS: readonly Migration[] = [
       -- ─────────────────────────────────────────────────────────────────────────────────────
     `,
   },
+  {
+    version: 16,
+    name: 'an_erasure_may_repoint_a_homestead_and_nothing_else_may',
+    up: `
+      -- ═══════════════════════════════════════════════════════════════════════════════════════
+      -- A GDPR ERASURE COULD NOT COMPLETE FOR ANYONE HOLDING A HOMESTEAD (micro-org#541)
+      -- ═══════════════════════════════════════════════════════════════════════════════════════
+      --
+      -- \`eraseUser\` repoints every retained row onto one random \`erased:<uuid>\` placeholder,
+      -- and \`parcels.owner_subject\` is one of them. \`tessera_guard_homestead\` (migration 4)
+      -- refuses ANY change of \`owner_subject\` on a Homestead, so that UPDATE raised:
+      --
+      --     parcel <id> is a Homestead — it is not tradeable (23-tessera.md §6.2)
+      --
+      -- The handler does not catch it, \`withInbox\` therefore writes no inbox row, and the
+      -- producer's relay redelivers for ever. Measured on mainnet 2026-09-02: EIGHT distinct
+      -- parcels, eight \`identity.user.deleted\` events, retrying continuously — 2,962 of the last
+      -- 4,000 lines of agora's log, and the whole of the estate's 5xx rate.
+      --
+      -- **A Homestead is the free starter parcel.** So this was not an edge case: it is the
+      -- erasure failing for approximately everybody, and the only outward signal was twenty-four
+      -- SLO burn alerts attributed to twenty services that had done nothing wrong.
+      --
+      -- ── WHY THE GUARD WAS RIGHT AND STILL IS ───────────────────────────────────────────────
+      --
+      -- §6.2 says a Homestead is NOT TRADEABLE. An erasure is not a trade. Nobody gains a parcel,
+      -- no consideration moves, and the destination is not a person — it is the absence of one.
+      -- Reading "not tradeable" as "pins a person's identity to this row for ever" would make the
+      -- game's land rule override Art. 17, which is not a trade-off this schema gets to make.
+      --
+      -- ── WHAT IS PERMITTED IS EXACTLY ONE TRANSITION, AND IT IS ONE-WAY ─────────────────────
+      --
+      -- \`owner_subject\` may become an \`erased:\` placeholder. It may never become anything else,
+      -- which includes moving OFF one: \`old.tier = 'homestead' and new.owner_subject is distinct
+      -- from old.owner_subject\` still raises when the new value is a person, so a Homestead that
+      -- has been erased is frozen where it stands. The shape is pinned to the same anchored uuid
+      -- pattern migration 15 uses, for migration 15's reason — a literal prefix with no uuid
+      -- would let an operator hand-write \`erased:someone\` and walk a Homestead out through this
+      -- branch.
+      --
+      -- The other two refusals in this function are untouched. A Homestead still cannot be
+      -- released (\`status <> 'held'\`) and still cannot change tier, and the erasure sets neither.
+      -- ═══════════════════════════════════════════════════════════════════════════════════════
+      create or replace function tessera_guard_homestead() returns trigger
+        language plpgsql
+      as $$
+      begin
+        if old.tier = 'homestead'
+           and new.owner_subject is distinct from old.owner_subject
+           and new.owner_subject !~ '^erased:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then
+          raise exception
+            'parcel % is a Homestead — it is not tradeable (23-tessera.md §6.2)', old.id
+            using errcode = 'check_violation';
+        end if;
+        if old.tier = 'homestead' and new.status <> 'held' then
+          raise exception
+            'parcel % is a Homestead — it is never released (23-tessera.md §4)', old.id
+            using errcode = 'check_violation';
+        end if;
+        if new.tier is distinct from old.tier then
+          raise exception
+            'parcel % may not change tier — claim the ground you want', old.id
+            using errcode = 'check_violation';
+        end if;
+        return new;
+      end;
+      $$;
+    `,
+  },
 ]
 
 /**

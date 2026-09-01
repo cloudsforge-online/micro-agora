@@ -269,7 +269,7 @@ describe('the sixteen ledgers cannot interfere even once the databases are right
         'mint:8',
         'foresight:13',
         'worlds:11',
-        'tessera:15',
+        'tessera:16',
         'activity:4',
         'notify:10',
         'lantern:5',
