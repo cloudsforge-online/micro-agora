@@ -60,7 +60,7 @@ import type { NetworkSql } from '@cloudsforge/db'
 import { Metrics, newRequestId, type Logger } from '@cloudsforge/telemetry'
 import type { JobQueue } from '@cloudsforge/jobs'
 import type { RequestContext as KernelContext, RouteSpec } from '../kernel.ts'
-import { eraseEveryPlane } from '../erasureplanes.ts'
+import { eraseEveryPlane, planeTotals } from '../erasureplanes.ts'
 import {
   SIGNATURE_HEADER,
   verifyEventSignature,
@@ -1259,6 +1259,9 @@ function buildRoutes(): Route[] {
           status: 202,
           body: {
             status: sweep.processed > 0 ? 'processed' : 'duplicate',
+            // The counts this body has always carried, summed across the planes, with the
+            // per-plane breakdown beside them.
+            ...planeTotals(sweep),
             planes: sweep.planes.map((plane) => ({
               network: plane.network,
               status: plane.status,

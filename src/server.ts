@@ -837,8 +837,10 @@ function buildRoutes(): Route[] {
           status: 200,
           body: {
             status: 'processed',
-            // Per plane, because "erased: true" over two databases cannot say which one, and the
-            // whole defect this replaced was invisible for exactly that reason.
+            // The field this body has always had, kept: true when ANY plane found the subject.
+            erased: sweep.planes.some((plane) => plane.value !== null),
+            // And per plane beside it, because "erased: true" over two databases cannot say which
+            // one, and the whole defect this replaced was invisible for exactly that reason.
             planes: sweep.planes.map((plane) => ({
               network: plane.network,
               status: plane.status,

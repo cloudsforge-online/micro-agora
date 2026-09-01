@@ -100,7 +100,7 @@ import { NetworkUnknownError, requestNetwork, type Network } from '@cloudsforge/
 import type { NetworkSql } from '@cloudsforge/db'
 import { Metrics, newRequestId, type Logger } from '@cloudsforge/telemetry'
 import type { Actor } from '@cloudsforge/contracts-events'
-import { eraseEveryPlane } from '../erasureplanes.ts'
+import { eraseEveryPlane, planeTotals } from '../erasureplanes.ts'
 import { SIGNATURE_HEADER, withInbox, withOutbox, type Db, type Emit, type Tx } from './outbox.ts'
 import {
   IdempotencyInFlightError,
@@ -1803,6 +1803,9 @@ function buildRoutes(): Route[] {
           status: 202,
           body: {
             status: sweep.processed > 0 ? 'processed' : 'duplicate',
+            // The fields this body has always had — `revoked` summed, `suspended` true if any
+            // plane suspended — and the per-plane breakdown beside them.
+            ...planeTotals(sweep),
             planes: sweep.planes.map((plane) => ({
               network: plane.network,
               status: plane.status,

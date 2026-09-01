@@ -981,15 +981,15 @@ export function createRoutes(deps: ServerDeps): RouteSpec<Db>[] {
       if (!UUID.test(eventId)) throw new BadRequestError('the event id must be a uuid');
       if (!SUBSCRIBED_TOPICS.has(topic)) return { status: 202, body: { status: 'ignored' } };
 
+      // VALIDATED BEFORE THE SWEEP: a malformed envelope is a 400 the relay must not retry, and a
+      // throw from inside a plane is a failure it SHOULD retry. Keeping them apart is the point.
+      const erasedUserId = envelope.payload?.['userId'];
+      if (typeof erasedUserId !== 'string' || !UUID.test(erasedUserId)) {
+        throw new BadRequestError(`${USER_DELETED_TOPIC} requires a uuid userId`);
+      }
       // EVERY plane, from the SELECTOR. See `../../erasureplanes.ts`.
       const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
-        withInbox(handle, topic, eventId, async (tx) => {
-          const userId = envelope.payload?.['userId'];
-          if (typeof userId !== 'string' || !UUID.test(userId)) {
-            throw new BadRequestError(`${USER_DELETED_TOPIC} requires a uuid userId`);
-          }
-          return eraseUser(tx, userId);
-        }),
+        withInbox(handle, topic, eventId, async (tx) => eraseUser(tx, erasedUserId)),
       );
       // Counts only. The erased id is never logged — writing it into the log would recreate, in
       // the one store nothing erases, exactly what the request was to remove.

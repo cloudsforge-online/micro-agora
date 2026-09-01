@@ -780,6 +780,15 @@ function buildRoutes(): Route[] {
           status: 202,
           body: {
             status: sweep.processed > 0 ? 'processed' : 'duplicate',
+            // The field this body has always had, summed across the planes.
+            ...(sweep.processed > 0
+              ? {
+                  listings: sweep.planes.reduce(
+                    (total, plane) => total + (plane.value ?? 0),
+                    0,
+                  ),
+                }
+              : {}),
             planes: sweep.planes.map((plane) => ({
               network: plane.network,
               status: plane.status,
