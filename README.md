@@ -6,17 +6,41 @@
 ![typescript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![module](https://img.shields.io/badge/module-ESM-F7DF1E?logo=javascript&logoColor=black)
 
-**Forge Agora** — the ecosystem's public square. Posts, replies, circles and whispers, on the
-CloudsForge account somebody already has. One service, one database, read by nobody else; the
-surface in front of it is
+**The platform tier of the CloudsForge estate: ONE process, twenty-three modules.**
+
+Every service that does not hold signing keys, ledger-posting authority or the right to issue a
+token now runs here. Forge Agora — the public square, and what this repository originally was — is
+one of them.
+
+> **The name is the process's, not the product's.** `agora` was the social network until the merge
+> waves; it is now the container that runs the social network *and* the operator console, the
+> wallet, the market, billing, mint, foresight, four game titles, the developer portal, the bus
+> tail and the telemetry sink. An outage here is most of the product surface at once, which is the
+> trade the merges made deliberately and measured before making. Renaming it to `platform` was
+> assessed and **refused** on cost — see M5f in
+> [`micro-deploy/docs/service-merge-plan.md`](https://github.com/cloudsforge-online/micro-deploy/blob/main/docs/service-merge-plan.md).
+
+The twenty-two absorbed modules keep their own **database**, their own **migrations**, their own
+**scopes** and their own **event paths**. A merge moved a process boundary, not a responsibility —
+and `src/merged.test.ts` is what holds that true: it takes one module's database away and asserts
+`/readyz` names WHICH, while the others still pass.
+
+Each module's source is under `src/<name>/`, and its former repository carries a banner pointing
+here. The surface in front of the square itself is
 [`micro-agora-web`](https://github.com/cloudsforge-online/micro-agora-web).
 
 ```bash
 pnpm install
-pnpm check                 # typecheck + 263 tests
-cp .env.example .env       # then fill AGORA_DATABASE_URL and the rest
-pnpm dev
+pnpm check                 # typecheck + 6,182 tests
+cp .env.example .env       # 22 databases and their peers; the migrate job needs them all,
+pnpm dev                   # because every module's env.ts validates at import
 ```
+
+> **`src/migratorenv.test.ts` is the guard for that last line.** Every `env.ts` validates the WHOLE
+> config at import, so absorbing a module adds its entire required set to the migrate Job — not
+> just its DSN. That was learned on a cluster, fifteen minutes into a deploy, on `MARKET_URL is
+> required`; it is now derived from the twenty-one `env.ts` files and checked against the rendered
+> manifest.
 
 ## What it is
 
@@ -140,7 +164,12 @@ guess is a 404 or a broken image with no diagnosis attached.
 
 ## Running the tests
 
-Twelve files, 263 tests, against a real Postgres:
+**6,182 tests across twenty-three modules, against a real Postgres — and against TWENTY-TWO
+databases, not one.** Each module owns its own, so the single container below is no longer enough:
+the suite creates them all, and `.github/workflows/ci.yml` is the authority on the list, the per-
+database table floors and the unique table each one is checked for. The one-container recipe here
+still runs the square's own files.
+
 
 ```sh
 docker run -d --name agora-test-pg -p 55433:5432 \
