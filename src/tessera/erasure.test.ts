@@ -26,6 +26,7 @@
 import { singleNetworkSql } from './testsupport.ts'
 import { test, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { networkSql, type Sql as DbSql } from '@cloudsforge/db'
 import type { Server } from 'node:http'
 import type postgres from 'postgres'
 import { Lifecycle } from '@cloudsforge/lifecycle'
@@ -125,7 +126,17 @@ function signed(raw: string, id: string): Record<string, string> {
 }
 
 function deps() {
-  return { sql: asDb(sql), logger: quietLogger(), secrets: [TEST_EVENT_SECRET] }
+  // ONE plane, which is what a single-network deployment holds — `planes` and `sql` are the
+  // same handle here, so the erasure sweep runs exactly once and these assertions are unchanged.
+  const handle = asDb(sql)
+  return {
+    sql: handle,
+    // The same `as unknown as DbSql` bridge `index.ts` uses: `@cloudsforge/db`'s `Sql` is the
+    // narrow selector contract, this is the concrete driver handle, and they are one object.
+    planes: networkSql({ mainnet: handle as unknown as DbSql }),
+    logger: quietLogger(),
+    secrets: [TEST_EVENT_SECRET],
+  }
 }
 
 /** Every column in the schema with a foreign key onto `accounts`, asked of the catalogue. */

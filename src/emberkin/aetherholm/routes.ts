@@ -125,6 +125,7 @@ import {
   type RequestContext,
   type RouteSpec,
 } from '../../kernel.ts';
+import { eraseEveryPlane } from '../../erasureplanes.ts';
 
 export interface PrincipalVerifier {
   principal(token: string): Promise<Principal>;
@@ -980,24 +981,31 @@ export function createRoutes(deps: ServerDeps): RouteSpec<Db>[] {
       if (!UUID.test(eventId)) throw new BadRequestError('the event id must be a uuid');
       if (!SUBSCRIBED_TOPICS.has(topic)) return { status: 202, body: { status: 'ignored' } };
 
-      const outcome = await withInbox(ctx.sql, topic, eventId, async (tx) => {
-        const userId = envelope.payload?.['userId'];
-        if (typeof userId !== 'string' || !UUID.test(userId)) {
-          throw new BadRequestError(`${USER_DELETED_TOPIC} requires a uuid userId`);
-        }
-        return eraseUser(tx, userId);
-      });
+      // EVERY plane, from the SELECTOR. See `../../erasureplanes.ts`.
+      const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+        withInbox(handle, topic, eventId, async (tx) => {
+          const userId = envelope.payload?.['userId'];
+          if (typeof userId !== 'string' || !UUID.test(userId)) {
+            throw new BadRequestError(`${USER_DELETED_TOPIC} requires a uuid userId`);
+          }
+          return eraseUser(tx, userId);
+        }),
+      );
       // Counts only. The erased id is never logged — writing it into the log would recreate, in
       // the one store nothing erases, exactly what the request was to remove.
       ctx.log.info('inbound event', {
         topic,
         eventId,
-        outcome: outcome.status,
-        ...(outcome.status === 'processed' ? outcome.value : {}),
+        outcome: sweep.processed > 0 ? 'processed' : 'duplicate',
+        planes: sweep.planes.map((plane) => ({
+          network: plane.network,
+          status: plane.status,
+          ...(plane.value ?? {}),
+        })),
       });
       return {
         status: 202,
-        body: { status: outcome.status === 'duplicate' ? 'duplicate' : 'recorded' },
+        body: { status: sweep.processed === 0 ? 'duplicate' : 'recorded' },
       };
     }),
   ];

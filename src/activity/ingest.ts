@@ -41,6 +41,7 @@ import {
   type EventEnvelope,
 } from '@cloudsforge/contracts-events'
 import type { Logger, Metrics } from '@cloudsforge/telemetry'
+import type { NetworkSql } from '@cloudsforge/db'
 import { classify } from './classify.ts'
 import { eraseUser, insertRecord, type ActivityRecord, type Db } from './records.ts'
 
@@ -64,6 +65,13 @@ export class MalformedEventError extends Error {
 
 export interface IngestDeps {
   readonly sql: Db
+  /**
+   * Every plane this process holds, for `identity.user.deleted` and nothing else.
+   *
+   * A feed entry belongs to an estate; a person does not. See the header of `ingest` and
+   * `../erasureplanes.ts`.
+   */
+  readonly planes: NetworkSql
   readonly logger: Logger
   readonly metrics: Metrics
   readonly secrets: readonly string[]
@@ -181,6 +189,44 @@ export type IngestOutcome =
 export async function ingest(deps: IngestDeps, delivery: ParsedDelivery): Promise<IngestOutcome> {
   const { envelope, known } = delivery
   const receivedAt = deps.now?.() ?? Date.now()
+
+  // ══════════════════════════════════════════════════════════════════════════════════════════════
+  // THE ONE TOPIC THAT IS NOT ABOUT AN ESTATE.
+  //
+  // Every feed entry belongs to the estate it happened in, so everything below runs on `deps.sql`
+  // — the request's handle. `identity.user.deleted` names a PERSON, who has one account and a feed
+  // on both planes, and this delivery carries no `CF-Network` for the kernel to resolve, so
+  // `deps.sql` has always been mainnet's. Measured 2026-09-02: no erasure had reached any testnet
+  // database since 2026-08-19 (micro-org#474). Handled here rather than inside the transaction
+  // below because the plane set has to be chosen BEFORE a transaction is opened on one of them.
+  // ══════════════════════════════════════════════════════════════════════════════════════════════
+  if (envelope.topic === 'identity.user.deleted') {
+    let removed = 0
+    let claimedAnywhere = false
+    await deps.planes.each(async (handle, network) => {
+      const plane = handle as unknown as Db
+      const outcome = await plane.begin(async (tx) => {
+        const claimed = await tx<{ event_id: string }[]>`
+          insert into inbox (topic, event_id) values (${envelope.topic}, ${envelope.id})
+          on conflict (topic, event_id) do nothing
+          returning event_id
+        `
+        if (claimed.length === 0) return null
+        const classified = classify(envelope, known)
+        if (classified.userId === null) return 0
+        return await eraseUser(tx, classified.userId)
+      })
+      if (outcome === null) return
+      claimedAnywhere = true
+      removed += outcome
+      deps.logger.info('erased a user on identity.user.deleted', { network, removed: outcome })
+    })
+    // Counts summed across the planes, because "removed: 3" over two databases cannot say which,
+    // and the per-plane line above is where the detail lives.
+    return claimedAnywhere
+      ? ({ status: 'erased', removed } as IngestOutcome)
+      : ({ status: 'duplicate' } as IngestOutcome)
+  }
 
   const outcome = await deps.sql.begin(async (tx) => {
     const claimed = await tx<{ event_id: string }[]>`

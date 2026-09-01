@@ -266,6 +266,9 @@ export async function createNotifyModule(host: HostRuntime): Promise<NotifyModul
 
   const pipeline: PipelineDeps = {
     sql,
+    // Both planes, for `identity.user.deleted` alone — `pipeline.ts` picks by topic. Every
+    // notification write still uses `sql` above.
+    planes: notifySql,
     logger,
     metrics,
     adapters,

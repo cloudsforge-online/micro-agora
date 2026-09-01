@@ -151,6 +151,7 @@ import {
   requestFingerprint,
   withIdempotency,
 } from './idempotency.ts'
+import { eraseEveryPlane } from '../erasureplanes.ts'
 import { withInbox, SIGNATURE_HEADER, type Db } from './outbox.ts'
 import { eraseSubject } from './erasure.ts'
 // The registry, and the one place that decides which topics the operator audit log carries.
@@ -971,8 +972,60 @@ function buildRoutes(): Route[] {
         })
         return { audit: appended, erasure }
       })
+
+      // ══════════════════════════════════════════════════════════════════════════════════════
+      // THE OTHER PLANE'S ERASURE, AND WHY IT IS A SECOND PASS RATHER THAN A SWEEP.
+      //
+      // This route mirrors EVERY audited topic, not just `identity.user.deleted`, and an audit
+      // row belongs to the estate the audited action happened in. Sweeping the whole handler
+      // across both planes would write a second copy of every audit row into the other estate's
+      // chain — a forged entry, in the one table whose value is that it is not forgeable.
+      //
+      // The erasure is the opposite: it names a person, who has one account and rows on both
+      // planes. So the mirror stays on the request's handle and the erasure runs again on every
+      // OTHER plane, under its own `(topic, event_id)` inbox claim per plane. See
+      // `../erasureplanes.ts` for the measurement that made this necessary (micro-org#474).
+      // ══════════════════════════════════════════════════════════════════════════════════════
+      const otherPlanes =
+        topic === USER_DELETED_TOPIC
+          ? await eraseEveryPlane(deps.sql, async (handle: Db, network) => {
+              if (handle === ctx.sql) return { status: 'duplicate' as const }
+              return withInbox(handle, topic, eventId, async (tx) => {
+                const payload = event.payload as Record<string, unknown>
+                const named = typeof payload['userId'] === 'string' ? payload['userId'] : ''
+                const userId = named.startsWith('user:') ? named.slice('user:'.length) : named
+                if (!UUID.test(userId)) {
+                  throw new BadRequestError('identity.user.deleted requires a uuid userId')
+                }
+                const erased = await eraseSubject(tx, {
+                  userId,
+                  sourceEventId: eventId,
+                  tombstoneAt:
+                    typeof payload['tombstoneAt'] === 'string' ? payload['tombstoneAt'] : null,
+                  reason: typeof payload['reason'] === 'string' ? payload['reason'] : null,
+                })
+                ctx.log.info('subject erasure registered on a second plane', {
+                  network,
+                  registered: erased.registered,
+                  approvalsAnonymised: erased.approvalsAnonymised,
+                  auditRowsRestricted: erased.auditRowsRestricted,
+                })
+                return erased
+              })
+            })
+          : null
+
       if (outcome.status === 'duplicate') {
-        return { status: 200, body: { status: 'duplicate', eventId } }
+        return {
+          status: 200,
+          body: {
+            status: 'duplicate',
+            eventId,
+            ...(otherPlanes && otherPlanes.processed > 0
+              ? { otherPlanesErased: otherPlanes.processed }
+              : {}),
+          },
+        }
       }
       deps.metrics.increment('admin_audit_events_total', {
         source: sender,
@@ -994,6 +1047,9 @@ function buildRoutes(): Route[] {
           seq: outcome.value.audit.seq.toString(),
           hash: outcome.value.audit.hash,
           ...(erasure ? { erasure } : {}),
+          ...(otherPlanes && otherPlanes.processed > 0
+            ? { otherPlanesErased: otherPlanes.processed }
+            : {}),
         },
       }
     }),

@@ -60,6 +60,7 @@ import type { NetworkSql } from '@cloudsforge/db'
 import { Metrics, newRequestId, type Logger } from '@cloudsforge/telemetry'
 import type { JobQueue } from '@cloudsforge/jobs'
 import type { RequestContext as KernelContext, RouteSpec } from '../kernel.ts'
+import { eraseEveryPlane } from '../erasureplanes.ts'
 import {
   SIGNATURE_HEADER,
   verifyEventSignature,
@@ -1250,14 +1251,19 @@ function buildRoutes(): Route[] {
 
       const done = deps.lifecycle.track()
       try {
-        const outcome = await withInbox(ctx.sql, topic, eventId, async (tx) =>
-          eraseSubject(tx, `user:${userId}`),
+        // EVERY plane, from the SELECTOR. See `../erasureplanes.ts`.
+        const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+          withInbox(handle, topic, eventId, async (tx) => eraseSubject(tx, `user:${userId}`)),
         )
         return {
           status: 202,
           body: {
-            status: outcome.status,
-            ...(outcome.status === 'processed' ? { ...outcome.value } : {}),
+            status: sweep.processed > 0 ? 'processed' : 'duplicate',
+            planes: sweep.planes.map((plane) => ({
+              network: plane.network,
+              status: plane.status,
+              ...(plane.value ?? {}),
+            })),
           },
         }
       } finally {

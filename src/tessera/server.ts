@@ -1352,7 +1352,9 @@ function buildRoutes(): Route[] {
     define('POST', '/v1/events', async (ctx, deps) => {
       const raw = await readRaw(ctx.req)
       const verdict = await handleDelivery(
-        { sql: ctx.sql, logger: ctx.log, secrets: deps.eventAcceptSecrets },
+        // `ctx.sql` for every topic that belongs to an estate, `deps.sql` — the SELECTOR — for
+        // the one that belongs to a person. `inbound.ts` picks between them by topic.
+        { sql: ctx.sql, planes: deps.sql, logger: ctx.log, secrets: deps.eventAcceptSecrets },
         raw,
         {
           [SIGNATURE_HEADER]: headerOf(ctx.req, SIGNATURE_HEADER),

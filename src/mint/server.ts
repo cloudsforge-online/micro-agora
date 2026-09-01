@@ -72,6 +72,7 @@ import {
   createToken,
   type TokenRecord,
 } from './tokens.ts'
+import { eraseEveryPlane } from '../erasureplanes.ts'
 import { SIGNATURE_HEADER, verifyEventSignature, withInbox, type Db } from './outbox.ts'
 import { eraseUser } from './erasure.ts'
 import type { RequestContext as KernelContext, RouteSpec } from '../kernel.ts'
@@ -794,7 +795,11 @@ function buildRoutes(): Route[] {
       if (!UUID.test(eventId)) throw new BadRequestError('the event id must be a uuid')
       if (!SUBSCRIBED_TOPICS.has(topic)) return { status: 202, body: { status: 'ignored' } }
 
-      const outcome = await withInbox(ctx.sql, topic, eventId, async (tx) => {
+      // `deps.sql` — the SELECTOR — not `ctx.sql`, which is ONE plane's handle. See
+      // `../erasureplanes.ts`: the relay sends no `CF-Network`, so `ctx.sql` here has always been
+      // mainnet and every erasure since 2026-08-19 left the testnet rows (micro-org#474).
+      const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+        withInbox(handle, topic, eventId, async (tx) => {
         // Rule 6 of docs/ecosystem/03 §2. The whole decision — which rows go, which are
         // anonymised, and the lawful basis for every one that stays — is in `erasure.ts`, in the
         // code rather than in a document that can drift away from it.
@@ -803,16 +808,23 @@ function buildRoutes(): Route[] {
           throw new BadRequestError('identity.user.deleted requires a uuid userId')
         }
         return eraseUser(tx, userId)
-      })
+        }),
+      )
       // Counts and field names only. The id of the person just erased is the one thing that must
-      // not now be written to a log that outlives the rows.
+      // not now be written to a log that outlives the rows. PER PLANE, because one line saying
+      // "processed" over two databases cannot say which one ran, and that is precisely how the
+      // one-plane erasure stayed invisible for a fortnight.
       ctx.log.info('inbound event', {
         topic,
         eventId,
-        outcome: outcome.status,
-        ...(outcome.status === 'processed' ? outcome.value : {}),
+        outcome: sweep.processed > 0 ? 'processed' : 'duplicate',
+        planes: sweep.planes.map((plane) => ({
+          network: plane.network,
+          status: plane.status,
+          ...(plane.value ?? {}),
+        })),
       })
-      return { status: 202, body: { status: outcome.status === 'duplicate' ? 'duplicate' : 'recorded' } }
+      return { status: 202, body: { status: sweep.processed === 0 ? 'duplicate' : 'recorded' } }
     }),
   ]
 }

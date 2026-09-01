@@ -15,6 +15,7 @@ import { test, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import type postgres from 'postgres'
 import { signDelivery } from '@cloudsforge/contracts-events'
+import type { NetworkSql } from '@cloudsforge/db'
 import {
   DeliverySignatureError,
   ingest,
@@ -96,6 +97,8 @@ test('a rotated-out secret is still accepted, so a rotation is a window and not 
   const { body } = delivery({ topic: 'wallet.deposit.confirmed', key: 'w-1', secret: ROTATED_OUT_SECRET })
   const deps: IngestDeps = {
     sql: null as unknown as Db,
+    // Never reached: this case is refused at the signature check, before any handle is used.
+    planes: null as unknown as NetworkSql,
     logger: quietLogger(),
     metrics: testMetrics(),
     secrets: [SECRET, ROTATED_OUT_SECRET],

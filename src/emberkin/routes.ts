@@ -69,6 +69,7 @@ import {
   type RequestContext,
   type RouteSpec,
 } from '../kernel.ts';
+import { eraseEveryPlane } from '../erasureplanes.ts';
 
 export interface PrincipalVerifier {
   principal(token: string): Promise<Principal>;
@@ -369,16 +370,31 @@ export function createRoutes(deps: ServerDeps): RouteSpec<Db>[] {
             // performed. That silence is the defect this handler exists to fix.
             throw new BadRequestError('identity.user.deleted requires a uuid userId');
           }
-          const erasure = await withInbox(ctx.sql, topic, eventId, (tx) => eraseUser(tx, erasedUserId));
-          if (erasure.status === 'duplicate') return { status: 202, body: withFanout({ status: 'duplicate' }) };
-          if (erasure.value.battlesNotCascaded > 0) {
-            ctx.log.error('battles did not cascade from saves — the foreign key has changed', {
-              eventId,
-              battles: erasure.value.battlesNotCascaded,
-            });
+          // EVERY plane, from the SELECTOR — not `ctx.sql`, which is ONE handle and, for a
+          // delivery that carries no `CF-Network`, always mainnet's. The entitlement branch below
+          // deliberately keeps `ctx.sql`: an entitlement belongs to the estate it was bought in,
+          // while a person does not belong to an estate at all. See `../erasureplanes.ts`.
+          const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+            withInbox(handle, topic, eventId, (tx) => eraseUser(tx, erasedUserId)),
+          );
+          if (sweep.processed === 0) return { status: 202, body: withFanout({ status: 'duplicate' }) };
+          for (const plane of sweep.planes) {
+            if (plane.value && plane.value.battlesNotCascaded > 0) {
+              ctx.log.error('battles did not cascade from saves — the foreign key has changed', {
+                eventId,
+                network: plane.network,
+                battles: plane.value.battlesNotCascaded,
+              });
+            }
+            // Counts, never the id: it is the thing we were just asked to forget.
+            if (plane.value) {
+              ctx.log.info('erased a user on identity.user.deleted', {
+                eventId,
+                network: plane.network,
+                ...plane.value,
+              });
+            }
           }
-          // Counts, never the id: it is the thing we were just asked to forget.
-          ctx.log.info('erased a user on identity.user.deleted', { eventId, ...erasure.value });
           return { status: 202, body: withFanout({ status: 'accepted', erased: true }) };
         }
 
