@@ -540,6 +540,84 @@ test(
   },
 )
 
+test(
+  'a user holding a HOMESTEAD can be erased, and the Homestead is still not tradeable after',
+  { skip },
+  async () => {
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    // THE ONE THE FIXTURES ABOVE NEVER HAD, AND IT COST A FORTNIGHT OF FAILED ERASURES.
+    //
+    // Every parcel in every other case here is a `plot`. A HOMESTEAD is the free starter parcel —
+    // so in production the fixtures were testing the uncommon case and missing the universal one.
+    //
+    // `tessera_guard_homestead` refuses ANY change of `owner_subject` on a Homestead, and the
+    // erasure repoints exactly that column. Measured on mainnet 2026-09-02: eight
+    // `identity.user.deleted` events retrying continuously, 2,962 of the last 4,000 log lines,
+    // and the entire 5xx rate that fired twenty-four SLO alerts — for a person who had asked to
+    // be erased and was not being.
+    //
+    // The author of this file anticipated the OTHER trigger on this same UPDATE — the deferred
+    // `parcels_within_deed_slots` — and carried `deed_slots` across specifically to defeat it,
+    // writing that failing it would mean "the erasure of exactly the most invested players would
+    // abort". The Homestead guard is on the same statement and was missed. That is the whole
+    // lesson: a fixture that never holds the common row proves nothing about the common case.
+    // ═════════════════════════════════════════════════════════════════════════════════════════
+    const wardId = await seedWard(sql)
+    await seedAccounts(sql, ALICE_SUBJECT, BOB_SUBJECT)
+    const [homestead] = await sql<{ id: string }[]>`
+      insert into parcels (ward_id, owner_subject, tier, origin_x, origin_y, size)
+      values (${wardId}, ${ALICE_SUBJECT}, 'homestead', 0, 0, 16)
+      returning id
+    `
+
+    const eventId = '0192fa00-0000-7000-8000-000000000009'
+    const raw = deletionEvent(ALICE, eventId)
+    const verdict = await handleDelivery(deps(), raw, signed(raw, eventId))
+    assert.equal(verdict.status, 200, 'the erasure completes rather than raising a check_violation')
+
+    const left = await occurrencesOf(ALICE_SUBJECT)
+    assert.deepEqual(left, [], `the erased subject survives in: ${left.join(', ')}`)
+
+    const [owned] = await sql<{ owner_subject: string; tier: string }[]>`
+      select owner_subject, tier from parcels where id = ${homestead!.id}
+    `
+    assert.equal(owned!.tier, 'homestead', 'the tier is untouched — this is not a downgrade')
+    assert.match(owned!.owner_subject, ERASED, 'the Homestead is held by nobody')
+
+    // ── AND THE RULE THE GUARD EXISTS FOR IS STILL ENFORCED ──────────────────────────────────
+    //
+    // The transition is ONE-WAY. A Homestead may become nobody's; it may never become somebody
+    // else's, and that includes moving off the placeholder it has just been moved onto.
+    await assert.rejects(
+      sql`update parcels set owner_subject = ${BOB_SUBJECT} where id = ${homestead!.id}`,
+      /is a Homestead — it is not tradeable/,
+      'an erased Homestead is frozen where it stands',
+    )
+  },
+)
+
+test('a Homestead still cannot be sold to a person', { skip }, async () => {
+  // The widened guard admits an anchored `erased:<uuid>` and nothing else. A hand-written
+  // placeholder-shaped string is the escape somebody would reach for first, and migration 15 pins
+  // the same pattern for the same reason.
+  const wardId = await seedWard(sql)
+  await seedAccounts(sql, ALICE_SUBJECT, BOB_SUBJECT)
+  const [homestead] = await sql<{ id: string }[]>`
+    insert into parcels (ward_id, owner_subject, tier, origin_x, origin_y, size)
+    values (${wardId}, ${ALICE_SUBJECT}, 'homestead', 0, 0, 16)
+    returning id
+  `
+  await assert.rejects(
+    sql`update parcels set owner_subject = ${BOB_SUBJECT} where id = ${homestead!.id}`,
+    /is a Homestead — it is not tradeable/,
+  )
+  await assert.rejects(
+    sql`update parcels set owner_subject = 'erased:someone' where id = ${homestead!.id}`,
+    /is a Homestead — it is not tradeable/,
+    'a placeholder-SHAPED string is not a placeholder',
+  )
+})
+
 test('erasing a user this service has never seen succeeds rather than 404s', { skip }, async () => {
   await seedWard(sql)
   const eventId = '0192fa00-0000-7000-8000-000000000004'
