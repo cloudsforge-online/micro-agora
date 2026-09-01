@@ -64,6 +64,7 @@ import {
   mountableRoutes as tessera,
   MOUNTED_EVENTS_PATH as TESSERA_EVENTS,
   REMOUNTED_PATHS as TESSERA_REMOUNTS,
+  TITLE_MOUNT_PREFIX as TESSERA_PREFIX,
 } from './tessera/server.ts'
 // ── WAVE M5c: FOUR MORE TABLES, AND TWO OF THEM ARRIVE NESTED ─────────────────────────────────
 //
@@ -438,19 +439,16 @@ describe('the commerce/games path collisions are resolved by remounting the inte
     for (const moved of ['GET /v1/tessera/listings', 'GET /v1/tessera/listings/:id', 'POST /v1/tessera/listings', 'POST /v1/tessera/listings/:id/activate']) {
       assert.ok(t.has(moved), `tessera serves ${moved}`)
     }
-    assert.deepEqual(TESSERA_REMOUNTS, {
-      '/v1/listings': '/v1/tessera/listings',
-      '/v1/listings/:id': '/v1/tessera/listings/:id',
-      '/v1/listings/:id/activate': '/v1/tessera/listings/:id/activate',
-    })
-  })
-
-  it('and tessera keeps the FROZEN title contract paths bare — the M5d collision is a future wave', () => {
-    // aetherholm also mounts /v1/title and /v1/provision, but it arrives in the separate emberkin
-    // pod in M5d, so there is no in-process collision now. Left bare deliberately.
-    const t = pathsOf('tessera')
-    assert.ok(t.has('GET /v1/title'), 'the title descriptor stays on its frozen contract path')
-    assert.ok(t.has('POST /v1/provision'), 'provisioning stays on its frozen contract path')
+    // The three LISTING remounts, named individually. The two frozen title paths are in the same
+    // map since the wave below moved them, and they are asserted there against the constants they
+    // are derived from rather than re-typed here.
+    for (const [from, to] of [
+      ['/v1/listings', '/v1/tessera/listings'],
+      ['/v1/listings/:id', '/v1/tessera/listings/:id'],
+      ['/v1/listings/:id/activate', '/v1/tessera/listings/:id/activate'],
+    ] as const) {
+      assert.equal(TESSERA_REMOUNTS[from], to)
+    }
   })
 })
 
@@ -736,16 +734,50 @@ describe('WAVE M5d: aetherholm’s two FROZEN contract paths, and the wave M3 re
   const pathsOf = (name: string): Set<string> =>
     new Set(TABLES.find(([n]) => n === name)![1].map(asString))
 
-  it('tessera keeps both bare, because it is the title worlds addresses at a bare origin', () => {
+  it('NEITHER title answers the bare frozen paths any more, and that is the point', () => {
+    /*
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     * M5d moved aetherholm's pair and left tessera's bare, on the usual rule: the module a caller
+     * already addresses keeps the path. That resolved the collision and left a sharper edge.
+     *
+     * `worlds/src/titleclient.ts` composes a title's address as the pathname of its REGISTERED
+     * base URL plus the frozen suffix. A row at an origin-only base — `http://agora:4000`, which
+     * is what every row looked like before M5d and what a hand-written one looks like again —
+     * asks for the bare `/v1/title`. While ONE title answered it, that row got a 200 and the
+     * wrong game's descriptor: a misconfigured registry row was indistinguishable from a correct
+     * one, and the only symptom was a player provisioned a game they did not buy.
+     *
+     * With both moved, the bare path is a 404. A row somebody fixes in a minute, rather than a
+     * 200 nobody has a reason to look at.
+     *
+     * ASSERTED AS AN ABSENCE ACROSS THE WHOLE TABLE, not per module: "nothing answers this" is
+     * the property, and a pair of per-module cases would still pass the day a third title mounted
+     * it. `MOUNTED` is every route the merged process really has.
+     * ══════════════════════════════════════════════════════════════════════════════════════════
+     */
+    const everything = new Set(TABLES.flatMap(([, routes]) => routes.map(asString)))
+    assert.ok(everything.size > 300, `only ${everything.size} routes — the table is not the merged one`)
+    // Present first, so the two assertions below cannot pass by finding nothing at all.
+    assert.ok(everything.has(`GET ${TESSERA_PREFIX}/v1/title`), 'tessera serves it under its prefix')
+    assert.ok(everything.has(`GET ${AETHERHOLM_PREFIX}/v1/title`), 'and aetherholm under its own')
+    assert.ok(!everything.has('GET /v1/title'), 'NO module may answer the bare descriptor path')
+    assert.ok(!everything.has('POST /v1/provision'), 'nor the bare provision path — that is a purchase')
+  })
+
+  it('tessera serves them under /tessera, derived from the frozen constants', () => {
     const t = pathsOf('tessera')
-    assert.ok(t.has('GET /v1/title'), 'the title descriptor stays on its frozen contract path')
-    assert.ok(t.has('POST /v1/provision'), 'provisioning stays on its frozen contract path')
+    assert.ok(t.has(`GET ${TESSERA_PREFIX}/v1/title`))
+    assert.ok(t.has(`POST ${TESSERA_PREFIX}/v1/provision`))
+    // Derived, not re-typed: a literal here could drift from the contract in silence.
+    for (const from of ['/v1/title', '/v1/provision'] as const) {
+      assert.equal(TESSERA_REMOUNTS[from], `${TESSERA_PREFIX}${from}`)
+    }
   })
 
   it('and aetherholm serves them under /aetherholm, which is a base URL and not a new contract', () => {
     const a = pathsOf('aetherholm')
-    assert.ok(!a.has('GET /v1/title'), 'aetherholm must not shadow tessera’s descriptor')
-    assert.ok(!a.has('POST /v1/provision'), 'nor its provision handler — that is a paid purchase')
+    assert.ok(!a.has('GET /v1/title'), 'aetherholm must not answer the bare descriptor')
+    assert.ok(!a.has('POST /v1/provision'), 'nor the bare provision path — that is a paid purchase')
     assert.ok(a.has(`GET ${AETHERHOLM_PREFIX}/v1/title`))
     assert.ok(a.has(`POST ${AETHERHOLM_PREFIX}/v1/provision`))
     // The map is derived from the frozen constants, so the SUFFIX worlds appends is unchanged and

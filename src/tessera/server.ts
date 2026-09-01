@@ -1667,15 +1667,51 @@ export const MOUNTED_EVENTS_PATH = '/v1/events/tessera'
  * callers (tessera-web) onto the namespaced paths is the same deploy-side sweep the event split
  * needs; no in-estate service calls tessera's listings.
  *
- * The frozen contract paths `/v1/title` and `/v1/provision` are left AS-IS: no other module in THIS
- * process mounts them (aetherholm arrives in the separate emberkin pod in M5d), so there is no
- * collision to split. See the note above the title-contract routes in `buildRoutes`.
+ * ── AND THE TWO FROZEN CONTRACT PATHS, WHICH THIS FILE USED TO KEEP ──────────────────────────
+ *
+ * What stood here said `/v1/title` and `/v1/provision` were left as-is because no other module in
+ * this process mounted them — "aetherholm arrives in the separate emberkin pod in M5d". M5d
+ * arrived, aetherholm is a module of this same process, and the note was true only until it was.
+ *
+ * M5d moved AETHERHOLM's pair to `/aetherholm/v1/…` and left tessera's bare, on the estate's usual
+ * rule: the module a caller already addresses keeps the path. That resolved the collision, and it
+ * left a sharper edge than either title had alone.
+ *
+ * `worlds/src/titleclient.ts` composes a title's address as `new URL(base).pathname` + the frozen
+ * suffix. A title registered at an ORIGIN-ONLY base URL — `http://agora:4000`, which is what every
+ * row looked like before M5d and what a hand-written row will look like again — therefore asks for
+ * the bare `/v1/title`. While ONE title still answers that path, such a row does not fail: it gets
+ * a 200, and the descriptor of whichever title kept the path. A misconfigured registry row is
+ * indistinguishable from a correct one, and the only symptom is that a player who paid for one
+ * game is provisioned another.
+ *
+ * So tessera's pair moves too, and after this NO module in the process answers the bare paths.
+ * That is the whole point of the change: the bare path becomes a 404, which is a row somebody
+ * fixes in a minute, rather than a 200 nobody has any reason to look at. `mergedroutes.test.ts`
+ * asserts the absence directly — the property is "nothing answers it", which no per-module case
+ * can express.
+ *
+ * tessera has NO row in the `titles` registry today (read from the live estate on 2026-08-31:
+ * aetherholm, emberkin and ninety-days-after are the three, and tessera is not among them), so
+ * nothing has to be migrated in the same release the way aetherholm's row did. The day a row is
+ * added it must name `http://agora:4000/tessera`.
+ *
+ * THE GATEWAY HALF IS NOT OPTIONAL, and it is the same rule as everywhere else: a remount inside
+ * the process leaves the bytes on the wire unchanged. Both of tessera's routers carry a rewrite —
+ * `deploy/scripts/check-remount-rewrites.py` derives that requirement from this very map, so it
+ * fails until they do.
  * ══════════════════════════════════════════════════════════════════════════════════════════════
  */
+
+/** The prefix this module's FROZEN title-contract paths carry inside the merged process. */
+export const TITLE_MOUNT_PREFIX = '/tessera'
+
 export const REMOUNTED_PATHS: Readonly<Record<string, string>> = Object.freeze({
   '/v1/listings': '/v1/tessera/listings',
   '/v1/listings/:id': '/v1/tessera/listings/:id',
   '/v1/listings/:id/activate': '/v1/tessera/listings/:id/activate',
+  [TITLE_DESCRIPTOR_PATH]: `${TITLE_MOUNT_PREFIX}${TITLE_DESCRIPTOR_PATH}`,
+  [PROVISION_PATH]: `${TITLE_MOUNT_PREFIX}${PROVISION_PATH}`,
 })
 
 /**
