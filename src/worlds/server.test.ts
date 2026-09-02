@@ -796,3 +796,125 @@ test('a second sealed season grants again — the per-user idempotency is per SE
 function singleNetworkSql(db: unknown) {
   return networkSql({ mainnet: db as RuntimeSql })
 }
+
+/* ------------------------------------------------------------------ erasure (micro-org#543) */
+
+/**
+ * `identity.user.deleted`, which this service ACCEPTED AND IGNORED until 2026-09-02.
+ *
+ * The old behaviour was a 202 `{status: 'ignored'}` — correct for a topic a service is not
+ * subscribed to, and the wrong answer for one it is registered for in
+ * `deploy/erasure/register.psv`. Measured on mainnet after the subscription was repaired: 101
+ * deliveries, 0 failures, 0 inbox rows on either plane.
+ *
+ * These cases pin the two halves that matter: what goes, and what is kept BECAUSE THE LEDGER
+ * RECONCILES IT. A future change that deletes a reward grant to make an erasure "cleaner" breaks
+ * the second one, which is the point of writing it down as a test rather than as a comment.
+ */
+test('an erasure deletes what is purely the player’s', { skip }, async () => {
+  const userId = '99999999-9999-4999-8999-999999999999'
+  await sql`insert into player_profiles (user_id, display_name) values (${userId}, 'Doomed')`
+  await sql`
+    insert into inventory_items (user_id, title_scope, item_urn, source)
+    values (${userId}, '*', 'urn:cf:test:item', 'reward')
+  `
+
+  const res = await postEvent({
+    id: '4f1a0000-0000-4000-8000-00000000e001',
+    topic: 'identity.user.deleted',
+    key: `user:${userId}`,
+    occurredAt: new Date().toISOString(),
+    producer: 'identity',
+    version: '1',
+    actor: 'service:identity',
+    payload: { userId },
+  })
+
+  assert.equal(res.status, 202)
+  assert.equal(res.body['status'], 'erased')
+
+  const profiles = await sql`select 1 from player_profiles where user_id = ${userId}`
+  const items = await sql`select 1 from inventory_items where user_id = ${userId}`
+  assert.equal(profiles.length, 0, 'the profile is gone')
+  assert.equal(items.length, 0, 'the inventory is gone, listed or not')
+})
+
+test('an erasure KEEPS a reward grant and anonymises it, because the ledger reconciles it', { skip }, async () => {
+  const userId = '88888888-8888-4888-8888-888888888888'
+  const title = await registerTitle(db, 'worlds', {
+    slug: 'erasure-title',
+    name: 'Erasure Title',
+    status: 'live',
+    serviceUrl: 'http://127.0.0.1:9009',
+    capabilities: ['seasons'],
+    assetScopes: [],
+    actor: 'operator:test',
+    correlationId: 'req-erasure',
+  })
+  const season = await openSeason(db, {
+    titleId: title.id,
+    slug: 'erasure-season',
+    name: 'Erasure Season',
+    startsAt: new Date('2026-01-01T00:00:00Z'),
+    endsAt: new Date('2026-04-01T00:00:00Z'),
+    rewardBudgetWei: 100n,
+    status: 'active',
+  })
+  await sql`
+    insert into reward_grants
+      (season_id, user_id, title_id, reason, amount_shards, journal_entry_id, idempotency_key)
+    values (${season.id}, ${userId}, ${title.id}, 'test', 5, 'je-erasure-1', 'idem-erasure-1')
+  `
+
+  const res = await postEvent({
+    id: '4f1a0000-0000-4000-8000-00000000e002',
+    topic: 'identity.user.deleted',
+    key: `user:${userId}`,
+    occurredAt: new Date().toISOString(),
+    producer: 'identity',
+    version: '1',
+    actor: 'service:identity',
+    payload: { userId },
+  })
+  assert.equal(res.status, 202)
+
+  const kept = await sql<{ user_id: string; journal_entry_id: string; amount_shards: string }[]>`
+    select user_id, journal_entry_id, amount_shards from reward_grants
+     where idempotency_key = 'idem-erasure-1'
+  `
+  assert.equal(kept.length, 1, 'the grant is RETAINED — deleting it would unreconcile a posting')
+  assert.notEqual(kept[0]?.user_id, userId, 'and the subject is gone from it')
+  assert.equal(kept[0]?.journal_entry_id, 'je-erasure-1', 'the ledger reference is untouched')
+  assert.equal(String(kept[0]?.amount_shards), '5', 'so is the amount')
+})
+
+test('an erasure with no uuid userId is a 400, not a quiet acknowledgement', { skip }, async () => {
+  const res = await postEvent({
+    id: '4f1a0000-0000-4000-8000-00000000e003',
+    topic: 'identity.user.deleted',
+    key: 'user:nobody',
+    occurredAt: new Date().toISOString(),
+    producer: 'identity',
+    version: '1',
+    actor: 'service:identity',
+    payload: { userId: 'not-a-uuid' },
+  })
+  assert.equal(res.status, 400, 'an erasure we cannot perform must not report success')
+})
+
+test('a redelivered erasure is a duplicate, which is what makes replaying old events safe', { skip }, async () => {
+  const userId = '77777777-7777-4777-8777-777777777777'
+  await sql`insert into player_profiles (user_id, display_name) values (${userId}, 'Twice')`
+  const envelope = {
+    id: '4f1a0000-0000-4000-8000-00000000e004',
+    topic: 'identity.user.deleted',
+    key: `user:${userId}`,
+    occurredAt: new Date().toISOString(),
+    producer: 'identity',
+    version: '1',
+    actor: 'service:identity',
+    payload: { userId },
+  }
+  assert.equal((await postEvent(envelope)).body['status'], 'erased')
+  assert.equal((await postEvent(envelope)).body['status'], 'duplicate')
+})

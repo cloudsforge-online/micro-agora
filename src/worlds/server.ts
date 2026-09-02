@@ -58,7 +58,9 @@ import type { RequestContext as KernelContext, RouteSpec } from '../kernel.ts'
 import { Metrics, newRequestId, type Logger } from '@cloudsforge/telemetry'
 import type { JobQueue } from '@cloudsforge/jobs'
 import { SEASON_SEALED_TOPIC, handleSeasonSealed } from './heraldry.ts'
-import { SIGNATURE_HEADER, verifyEventSignature, type Db } from './outbox.ts'
+import { SIGNATURE_HEADER, verifyEventSignature, withInbox, type Db } from './outbox.ts'
+import { eraseEveryPlane } from '../erasureplanes.ts'
+import { USER_DELETED_TOPIC, eraseUser } from './erasure.ts'
 import {
   isCapability,
   listTitles,
@@ -596,6 +598,67 @@ function buildRoutes(): Route[] {
           }
           ctx.log.info('heraldry granted', { seasonId, ...result.outcome })
           return { status: 202, body: { status: 'granted', ...result.outcome } }
+        } finally {
+          done()
+        }
+      }
+      if (topic === USER_DELETED_TOPIC) {
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // GDPR erasure. This branch DID NOT EXIST until 2026-09-02, and its absence was invisible
+        // for the worst possible reason: the event fell through to the 202 below, which is the
+        // right answer for a topic a service is not subscribed to and the wrong answer for this
+        // one. Measured after the subscription was repaired — 101 deliveries, 0 failures, 0 inbox
+        // rows on either plane (micro-org#543).
+        //
+        // Which rows go, which are anonymised, and the lawful basis for every one that stays are
+        // in `erasure.ts`, beside the code rather than in a document that drifts from it.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        const raw = envelope['payload']
+        const payload =
+          typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+            ? (raw as Record<string, unknown>)
+            : {}
+        // `payload.userId`, not `envelope.actor`: the actor is whoever ASKED for the deletion,
+        // which is the deleted user only when they deleted themselves. Validated HERE rather than
+        // inside the sweep — an envelope is malformed once, not once per database, and a throw
+        // from inside a plane is a failure the relay should retry while this one it must not.
+        const named = typeof payload['userId'] === 'string' ? payload['userId'] : ''
+        const erasedUserId = named.startsWith('user:') ? named.slice('user:'.length) : named
+        if (!UUID.test(erasedUserId)) {
+          deps.metrics.increment('worlds_events_rejected_total', { reason: 'malformed' })
+          // 400 rather than a quiet 202: an erasure we cannot perform must not be acknowledged as
+          // performed. That silence is the defect this whole branch exists to end.
+          throw new BadRequestError(`${USER_DELETED_TOPIC} requires a uuid userId`)
+        }
+        const done = deps.lifecycle.track()
+        try {
+          // EVERY plane, from the SELECTOR. This handler is being written on the day the estate
+          // learned that a one-plane erasure is half an erasure, so it starts with both
+          // (micro-org#474, `../erasureplanes.ts`).
+          const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+            withInbox(handle, topic, eventId, (tx) => eraseUser(tx, erasedUserId)),
+          )
+          // Counts, never the id: it is the thing we were just asked to forget.
+          for (const plane of sweep.planes) {
+            if (plane.value) {
+              ctx.log.info('erased a player on identity.user.deleted', {
+                eventId,
+                network: plane.network,
+                ...plane.value,
+              })
+            }
+          }
+          return {
+            status: 202,
+            body: {
+              status: sweep.processed === 0 ? 'duplicate' : 'erased',
+              planes: sweep.planes.map((plane) => ({
+                network: plane.network,
+                status: plane.status,
+                ...(plane.value ?? {}),
+              })),
+            },
+          }
         } finally {
           done()
         }
