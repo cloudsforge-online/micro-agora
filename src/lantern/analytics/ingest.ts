@@ -360,24 +360,12 @@ export async function ingest(deps: IngestDeps, delivery: ParsedDelivery): Promis
 
   const result = outcome.result
 
-  if (result.status === 'duplicate') {
-    // Expected under at-least-once delivery, so it is counted rather than logged at a level that
-    // wakes anybody. A rate that climbs means a producer is not marking deliveries as delivered.
-    deps.metrics.increment('analytics_duplicates_dropped_total')
-    return result
-  }
-
-  if (result.status === 'refused') {
-    deps.metrics.increment('analytics_rejections_total', { reason: result.reason })
-    // The topic, never the offending property name — see properties.ts. A producer learns the
-    // names from the response to its own delivery.
-    deps.logger.warn('an event was refused', { topic: envelope.topic, reason: result.reason })
-    return result
-  }
-
-  if (result.status === 'erased') {
+  // Counted outside the block so the log line below can name it whatever the primary plane did.
+  let otherPlanes = 0
+  // Only this topic, and regardless of what the primary plane answered. See below.
+  if (envelope.topic === ERASURE_TOPIC) {
     // ════════════════════════════════════════════════════════════════════════════════════════
-    // THE OTHER PLANE, AS A SECOND PASS.
+    // THE OTHER PLANE, AS A SECOND PASS — AND *BEFORE* THE DUPLICATE RETURN.
     //
     // A second pass rather than a sweep of the whole handler, for the same reason `admin-api`
     // uses one: every other topic this ingest accepts is an EVENT that happened in one estate,
@@ -391,7 +379,11 @@ export async function ingest(deps: IngestDeps, delivery: ParsedDelivery): Promis
     // plane's is leaving the thing the erasure exists to destroy.
     //
     // Per-plane inbox claim, so a redelivery repairs the plane that was missed and is a no-op on
-    // the one that was not.
+    // the one that was not — WHICH IS WHY THIS SITS ABOVE THE `duplicate` RETURN BELOW rather
+    // than inside the `erased` branch, where it was first written. A replayed event id is a
+    // duplicate on the plane that already handled it, and the early return then skipped the
+    // repair entirely: measured after the first replay, `analytics_testnet` was still on 24 rows
+    // while every other absorbed module had reached 125.
     // ════════════════════════════════════════════════════════════════════════════════════════
     const payload =
       typeof envelope.payload === 'object' && envelope.payload !== null
@@ -399,7 +391,6 @@ export async function ingest(deps: IngestDeps, delivery: ParsedDelivery): Promis
         : {}
     const named = typeof payload['userId'] === 'string' ? payload['userId'] : ''
     const erasedUserId = named.startsWith('user:') ? named.slice('user:'.length) : named
-    let otherPlanes = 0
     await deps.planes.each(async (handle, network) => {
       const plane = handle as unknown as Db
       if (plane === deps.sql) return
@@ -421,7 +412,33 @@ export async function ingest(deps: IngestDeps, delivery: ParsedDelivery): Promis
         })
       }
     })
+  }
 
+  if (result.status === 'duplicate') {
+    // Expected under at-least-once delivery, so it is counted rather than logged at a level that
+    // wakes anybody. A rate that climbs means a producer is not marking deliveries as delivered.
+    deps.metrics.increment('analytics_duplicates_dropped_total')
+    // A duplicate HERE and a first delivery on another plane is exactly the repair case, so it is
+    // said rather than swallowed by a bare early return.
+    if (otherPlanes > 0) {
+      deps.logger.info('a subject was erased on a second plane by a redelivery', {
+        otherPlanes,
+        correlationId: envelope.correlationId,
+      })
+      deps.metrics.increment('analytics_erasures_total')
+    }
+    return result
+  }
+
+  if (result.status === 'refused') {
+    deps.metrics.increment('analytics_rejections_total', { reason: result.reason })
+    // The topic, never the offending property name — see properties.ts. A producer learns the
+    // names from the response to its own delivery.
+    deps.logger.warn('an event was refused', { topic: envelope.topic, reason: result.reason })
+    return result
+  }
+
+  if (result.status === 'erased') {
     deps.logger.info('a subject was erased', {
       alreadyErased: result.alreadyErased,
       otherPlanes,
