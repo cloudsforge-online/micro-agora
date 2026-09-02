@@ -44,8 +44,16 @@ import { serviceTokenProbe } from '@cloudsforge/auth'
 import type { Probe } from '@cloudsforge/lifecycle'
 import { httpProbe, postgresProbe } from '@cloudsforge/lifecycle'
 import { Logger, type Metrics } from '@cloudsforge/telemetry'
+import type { Network } from '@cloudsforge/http'
 import type { RouteSpec } from '../kernel.ts'
+import type { InboundOutcome, InboundSink } from '../inboundsink.ts'
+import { eraseEveryPlane, planeTotals } from '../erasureplanes.ts'
+import { USER_DELETED_TOPIC, eraseUser } from './erasure.ts'
+import { withInbox } from './outbox.ts'
 import type { Target } from '../migratortargets.ts'
+
+/** The uuid `identity` sends in `payload.userId`. Anchored, so a longer string is not a match. */
+const ERASURE_UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 import { SERVICE, env } from './env.ts'
 import { BASELINE_VERSION, MIGRATIONS, SCHEMA_VERSION } from './migrations.ts'
 import { mountableRoutes, registerServiceMetrics, type PrincipalVerifier } from './server.ts'
@@ -97,6 +105,17 @@ export interface HostRuntime {
 /** What the host process gets back. **No field here names a database handle.** */
 export interface WalletModule {
   readonly routes: readonly RouteSpec<Db>[]
+  /**
+   * The host's fan-out of `identity.user.deleted` into this module — micro-org#534.
+   *
+   * No route and no subscription row of its own. `../server.ts`'s `MOUNTED_EVENT_PATHS` states the
+   * condition under which one webhook may serve several modules, and the condition is ONE KEY, NOT
+   * THREE: wallet, studio, foresight and agora all verify with the estate-wide
+   * `OUTBOX_SIGNING_SECRET`, so a delivery that verifies for the host verifies for this module.
+   * A second subscription pointing at the same URL would only be the same event id deduped away by
+   * `withInbox`.
+   */
+  readonly inbound: InboundSink
   /**
    * The readiness probes for THIS module: two hard, three soft.
    *
@@ -349,6 +368,37 @@ export async function createWalletModule(host: HostRuntime): Promise<WalletModul
 
   return {
     routes,
+    inbound: {
+      module: MODULE_LABEL,
+      topics: new Set([USER_DELETED_TOPIC]),
+      deliver: async (
+        _network: Network,
+        topic: string,
+        eventId: string,
+        payload: Record<string, unknown>,
+      ): Promise<InboundOutcome> => {
+        if (topic !== USER_DELETED_TOPIC) return { status: 'processed' }
+        // `payload.userId`, not `envelope.actor`: on this topic the actor is whoever ASKED for the
+        // deletion, which is the deleted user only when they deleted themselves.
+        const named = typeof payload['userId'] === 'string' ? payload['userId'] : ''
+        const bare = named.startsWith('user:') ? named.slice('user:'.length) : named
+        if (!ERASURE_UUID.test(bare)) {
+          // A RESULT and not a throw: the host maps this to a 400. An erasure that cannot be
+          // performed must not be acknowledged as performed.
+          return { status: 'rejected', reason: `${USER_DELETED_TOPIC} requires a uuid userId` }
+        }
+        // EVERY plane, from THIS MODULE'S selector — the `_network` argument is deliberately
+        // unused on this topic. identity's relay sends no `CF-Network`, so a handler run on the
+        // request's resolved handle would always reach mainnet's database and leave every testnet
+        // wallet untouched (micro-org#474, `../erasureplanes.ts`).
+        const sweep = await eraseEveryPlane(walletSql, (handle: Db) =>
+          withInbox(handle, topic, eventId, (tx) => eraseUser(tx, bare)),
+        )
+        if (sweep.processed === 0) return { status: 'duplicate' }
+        // Counts only, summed across the planes. The erased subject is never logged.
+        return { status: 'processed', detail: planeTotals(sweep) }
+      },
+    },
     probes: [
       postgresProbe(`postgres-${MODULE_LABEL}`, (signal) =>
         // The probe deadline is enforced by the Lifecycle's AbortSignal, but a driver that ignored
