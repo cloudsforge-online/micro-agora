@@ -13,6 +13,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import test, { after, before, beforeEach } from 'node:test'
 import type postgres from 'postgres'
 import { eraseSubject } from './erasure.ts'
@@ -76,11 +77,17 @@ async function seedStake(subject: string): Promise<string> {
   const market = await seedDraft(sql)
   await openDirect(sql, market.id)
   const id = market.id
+  // `idempotency_key` is NOT NULL and easy to forget — this fixture omitted it and CI answered
+  // `23502` rather than anything about erasure, one round after the same thing happened with
+  // `markets.question_hash`. Twice is a pattern: `custodialstakes.test.ts` owns an `insertRaw`
+  // with every required column, and the two suites should share ONE fixture rather than each
+  // rediscovering the schema. That move needs three constants moved with it and is worth its own
+  // change; what is here is the minimum that is correct today.
   await sql`
     insert into custodial_stakes
       (market_id, subject, outcome, stake_asset_code, stake_amount, pool_amount,
-       stake_rate_usd_scaled, pool_rate_usd_scaled)
-    values (${id}, ${subject}, 1, 'EMBER', 1000, 1000, 1, 1)
+       stake_rate_usd_scaled, pool_rate_usd_scaled, idempotency_key)
+    values (${id}, ${subject}, 1, 'EMBER', 1000, 1000, 1, 1, ${`erasure-${randomUUID()}`})
   `
   return id
 }
