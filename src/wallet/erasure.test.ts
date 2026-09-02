@@ -53,8 +53,8 @@ beforeEach(async () => {
  *
  * ── THE FIXTURE MUST NOT INVENT A DEFECT, WHICH IS EASIER TO DO THAN IT SOUNDS ────────────────
  *
- * Every value here is derived through `chainish()` — a hash of the user id, standing in for the
- * chain data a real row holds — rather than from the uuid itself. That is not cosmetic. The
+ * Every value here is derived through `tag` — a hash of the user id, standing in for the chain
+ * data a real row holds — rather than from the uuid itself. That is not cosmetic. The
  * catalogue sweep below fails on ANY column containing the raw id, so a fixture that wrote
  * `address_key = key-<userId>` would fail on a column the erasure deliberately leaves alone, and
  * the failure would look like a hole in the handler rather than a hole in the fixture.
