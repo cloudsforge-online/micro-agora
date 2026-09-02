@@ -17,7 +17,15 @@ import test, { after, before, beforeEach } from 'node:test'
 import type postgres from 'postgres'
 import { eraseSubject } from './erasure.ts'
 import type { Db, Tx } from './outbox.ts'
-import { enabled, migrateTestDb, openDb, resetForesight, skip } from './testsupport.ts'
+import {
+  enabled,
+  migrateTestDb,
+  openDb,
+  openDirect,
+  resetForesight,
+  seedDraft,
+  skip,
+} from './testsupport.ts'
 
 let sql: postgres.Sql
 
@@ -56,15 +64,18 @@ async function tracesOf(needle: string): Promise<string[]> {
   return found
 }
 
-/** A market and one custodial stake on it, which is the only row in this schema naming a person. */
+/**
+ * A market and one custodial stake on it, which is the only row in this schema naming a person.
+ *
+ * `seedDraft` and not a hand-written INSERT: `markets` has NOT NULL columns a test has no business
+ * knowing about — `question_hash` among them — and the first version of this fixture omitted one
+ * and failed with `23502` rather than with anything about erasure. The suite already owns a helper
+ * that builds a valid market; using it means a column added tomorrow does not break this file.
+ */
 async function seedStake(subject: string): Promise<string> {
-  const market = await sql<{ id: string }[]>`
-    insert into markets (question, resolution_criteria, category, category_version,
-                         resolution_source_kind, resolution_source_ref, close_time)
-    values ('will it?', 'it will', 'test', 1, 'manual', 'operator', now() + interval '1 day')
-    returning id
-  `
-  const id = market[0]!.id
+  const market = await seedDraft(sql)
+  await openDirect(sql, market.id)
+  const id = market.id
   await sql`
     insert into custodial_stakes
       (market_id, subject, outcome, stake_asset_code, stake_amount, pool_amount,
