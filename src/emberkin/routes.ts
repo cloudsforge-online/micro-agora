@@ -92,56 +92,16 @@ const DELETED_TOPIC = 'identity.user.deleted';
 export const SUBSCRIBED_TOPICS: ReadonlySet<string> = new Set([GRANTED_TOPIC, DELETED_TOPIC]);
 
 /**
- * What one MOUNTED module needs from the process's single event webhook.
+ * The fan-out contract, now shared with the host.
  *
- * ══════════════════════════════════════════════════════════════════════════════════════════════
- * **`identity.user.deleted` IS SUBSCRIBED BY EVERY TITLE IN THIS PROCESS, AND THAT IS WHY THIS
- * EXISTS.**
- *
- * Before the merge, identity's relay held one subscription row per service and delivered the same
- * erasure once per subscriber — to emberkin, to aetherholm, to nda — and each erased its own
- * `user_id` columns. After the merge there is ONE endpoint. Route the event to one module and the
- * others never erase: the deletion answers 202, the producer marks it delivered, and every city
- * that person founded and every homestead they built is still standing. There is no retry, because
- * nothing failed.
- *
- * Registering TWO subscription rows both pointing at the merged URL does not fix it either — it is
- * worse. The same event id would arrive twice at one endpoint and `withInbox` would dedupe the
- * second delivery away, which is the same silence with a second row to make it look handled.
- *
- * So the route verifies ONCE and fans out to every module that subscribes, each against its own
- * database, its own `inbox` table and its own erasure. `merged.test.ts` fails if the fan-out is
- * removed, and it checks each mounted module's database directly rather than trusting the 202.
- * ══════════════════════════════════════════════════════════════════════════════════════════════
- *
- * `deliver` takes the NETWORK and never a handle. The sink resolves its own module's handle from
- * its own selector, so this interface cannot be used to hand one module the other's database —
- * there is no parameter it would arrive through.
+ * These two types were defined here and are defined in `../inboundsink.ts` since 2026-09-02,
+ * because `agora/src/server.ts` fans out to `studio`, `foresight` and `wallet` on the same
+ * argument this file made for the titles (micro-org#534). Re-exported rather than moved-and-fixed
+ * everywhere, so every existing importer of `./routes.ts` keeps working and there is exactly one
+ * definition.
  */
-export interface InboundSink {
-  /** For the log line and the reply. `aetherholm`, `nda`. */
-  readonly module: string;
-  readonly topics: ReadonlySet<string>;
-  deliver(
-    network: Network,
-    topic: string,
-    eventId: string,
-    payload: Record<string, unknown>,
-  ): Promise<InboundOutcome>;
-}
-
-/**
- * What a sink answers.
- *
- * A RESULT rather than a thrown domain error, deliberately: each module has its own error
- * vocabulary and its own mapping to a status, and a mounted module's `BadRequestError` reaching
- * this module's `catch` would be mapped by a chain that has never heard of it — a 500 for what is
- * a 400. The sink maps its own; this route only has to combine.
- */
-export type InboundOutcome =
-  | { readonly status: 'processed'; readonly detail?: Record<string, unknown> }
-  | { readonly status: 'duplicate' }
-  | { readonly status: 'rejected'; readonly reason: string };
+import type { InboundOutcome, InboundSink } from '../inboundsink.ts';
+export type { InboundOutcome, InboundSink };
 
 /**
  * Everything the routes need. Extends the kernel's `MountDeps` — which carries the logger, the
