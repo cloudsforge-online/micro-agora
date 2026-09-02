@@ -36,7 +36,15 @@ import type { Verifier } from '@cloudsforge/auth'
 import type { Lifecycle, Probe } from '@cloudsforge/lifecycle'
 import { postgresProbe } from '@cloudsforge/lifecycle'
 import { Logger, type Metrics } from '@cloudsforge/telemetry'
+import type { Network } from '@cloudsforge/http'
 import type { RouteSpec } from '../kernel.ts'
+import type { InboundOutcome, InboundSink } from '../inboundsink.ts'
+import { eraseEveryPlane, planeTotals } from '../erasureplanes.ts'
+import { USER_DELETED_TOPIC, eraseSubject } from './erasure.ts'
+import { withInbox } from './outbox.ts'
+
+/** The uuid `identity` sends in `payload.userId`. Anchored, so a longer string is not a match. */
+const ERASURE_UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 import type { Target } from '../migratortargets.ts'
 import { SERVICE, env } from './env.ts'
 import { BASELINE_VERSION, MIGRATIONS, SCHEMA_VERSION } from './migrations.ts'
@@ -86,6 +94,8 @@ export interface HostRuntime {
 /** What the host process gets back. **No field here names a database handle.** */
 export interface ForesightModule {
   readonly routes: readonly RouteSpec<Db>[]
+  /** This module's half of the host's one event webhook. See the value for why it is not a route. */
+  readonly inbound: InboundSink
   /**
    * The readiness probes for THIS module.
    *
@@ -377,6 +387,39 @@ export async function createForesightModule(host: HostRuntime): Promise<Foresigh
 
   return {
     routes,
+    /**
+     * This module's half of the process's ONE event webhook.
+     *
+     * Same argument as studio's: foresight has no `POST /v1/events`, verifies with the estate-wide
+     * `OUTBOX_SIGNING_SECRET` the square's route already checked, and subscribes to the same topic
+     * — so `MOUNTED_EVENT_PATHS`'s condition (ONE KEY, NOT THREE) is met and the fan-out is the
+     * honest shape rather than a shortcut (micro-org#534).
+     */
+    inbound: {
+      module: MODULE_LABEL,
+      topics: new Set([USER_DELETED_TOPIC]),
+      deliver: async (
+        _network: Network,
+        topic: string,
+        eventId: string,
+        payload: Record<string, unknown>,
+      ): Promise<InboundOutcome> => {
+        if (topic !== USER_DELETED_TOPIC) return { status: 'processed' }
+        const named = typeof payload['userId'] === 'string' ? payload['userId'] : ''
+        const bare = named.startsWith('user:') ? named.slice('user:'.length) : named
+        if (!ERASURE_UUID.test(bare)) {
+          return { status: 'rejected', reason: `${USER_DELETED_TOPIC} requires a uuid userId` }
+        }
+        // EVERY plane, from THIS MODULE'S selector; `_network` is deliberately unused on this
+        // topic (micro-org#474, `../erasureplanes.ts`).
+        const sweep = await eraseEveryPlane(foresightSql, (handle: Db) =>
+          withInbox(handle, topic, eventId, (tx) => eraseSubject(tx, `user:${bare}`)),
+        )
+        if (sweep.processed === 0) return { status: 'duplicate' }
+        // Counts only. The subject is never logged — it is what we were asked to forget.
+        return { status: 'processed', detail: planeTotals(sweep) }
+      },
+    },
     probes: [
       postgresProbe(`postgres-${MODULE_LABEL}`, (signal) =>
         Promise.race([

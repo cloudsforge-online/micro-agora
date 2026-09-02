@@ -658,10 +658,15 @@ test('a recorded stake is immutable — it is what a refund is paid from', { ski
     sql`update custodial_stakes set stake_rate_usd_scaled = 1 where market_id = ${marketId}`,
     /immutable/,
   )
+  // The subject is still refused, and since migration 14 it is refused by its OWN branch with its
+  // own message — `/immutable/` would no longer match. The rule is unchanged and narrower: a stake
+  // may not be re-attributed to another PERSON, and the one thing it may now become is an
+  // `erased:` placeholder, because an erasure had no other way to complete (micro-org#534).
+  // `erasure.test.ts` covers that transition and the fact that it is one-way.
   await assert.rejects(
     sql`update custodial_stakes set subject = 'user:00000000-0000-4000-8000-000000000009'
          where market_id = ${marketId}`,
-    /immutable/,
+    /may only be repointed onto an erased: placeholder/,
   )
 })
 
