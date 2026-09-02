@@ -230,8 +230,9 @@ test('erasing one person leaves another untouched', { skip }, async () => {
 
   await eraseUser(sql as never, ALICE)
 
+  // TWO: `seedTrail` gives each person a managed wallet and an external one.
   const bob = await sql`select 1 from wallets where user_id = ${BOB}`
-  assert.equal(bob.length, 1, "Bob's wallet was swept up in Alice's erasure")
+  assert.equal(bob.length, 2, "Bob's wallets were swept up in Alice's erasure")
   const key = await sql`select 1 from idempotency_keys where key like ${`%${BOB}%`}`
   assert.equal(key.length, 1, "Bob's idempotency key was rewritten")
 })
@@ -239,7 +240,7 @@ test('erasing one person leaves another untouched', { skip }, async () => {
 test('a second delivery of the same erasure changes nothing', { skip }, async () => {
   await seedTrail(ALICE)
   const first = await eraseUser(sql as never, ALICE)
-  assert.equal(first.wallets, 1)
+  assert.equal(first.wallets, 2, 'the managed wallet and the external one')
 
   // Idempotence here is trivially true because the `where` no longer matches, which is the point.
   // `withInbox` is what stops the handler running twice at all; this asserts it is SAFE when it
