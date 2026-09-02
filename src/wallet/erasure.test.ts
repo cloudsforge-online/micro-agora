@@ -23,6 +23,14 @@ import { enabled, migrateTestDb, openDb, resetWallet, skip } from './testsupport
 
 let sql: postgres.Sql
 
+/**
+ * `ltc`, not `litecoin`. `wallets_chain_ck` (migration 10's `CHAIN_CK_V10`) admits the SHORT chain
+ * ids this module uses on the wire — `ember`, `eth`, `btc`, `sol`, `xrp`, `ltc` — and micro-custody,
+ * one call away, spells the same chain `litecoin`. A fixture that guesses the wrong side of that
+ * boundary fails with a 23514 that says nothing about which spelling was wanted.
+ */
+const CHAIN = 'ltc'
+
 const ALICE = '11111111-1111-4111-8111-111111111111'
 const BOB = '22222222-2222-4222-8222-222222222222'
 
@@ -41,25 +49,35 @@ beforeEach(async () => {
 })
 
 /** One person's whole trail: a wallet, a deposit address, a credit, a withdrawal, a key, an event. */
+/**
+ * One person's whole trail: a wallet, a deposit address, a credit, a withdrawal, a key, an event.
+ *
+ * `custody_key_urn` is NOT optional here even though the column is nullable. `wallets_custody_urn_ck`
+ * is an EQUALITY between two booleans — `(origin = 'managed') = (custody_key_urn is not null)` — so
+ * a managed wallet without one fails with a 23514 that reads like a chain problem rather than a
+ * null one.
+ */
 async function seedTrail(userId: string): Promise<{ walletId: string; assignmentId: string }> {
   const walletId = randomUUID()
   const assignmentId = randomUUID()
   await sql`
-    insert into wallets (id, user_id, origin, chain, network, address, address_key, label, status)
-    values (${walletId}, ${userId}, 'managed', 'litecoin', 'mainnet',
-            ${`ltc1${userId.slice(0, 8)}`}, ${`key-${userId}`}, 'my rent wallet', 'active')
+    insert into wallets
+      (id, user_id, origin, chain, network, address, address_key, label, status, custody_key_urn)
+    values (${walletId}, ${userId}, 'managed', ${CHAIN}, 'mainnet',
+            ${`ltc1${userId.slice(0, 8)}`}, ${`key-${userId}`}, 'my rent wallet', 'active',
+            ${`urn:custody:${userId}`})
   `
   await sql`
     insert into deposit_address_assignments
       (id, user_id, asset_code, chain, network, wallet_id, address, address_key, custody_key_urn)
-    values (${assignmentId}, ${userId}, 'LTC', 'litecoin', 'mainnet', ${walletId},
+    values (${assignmentId}, ${userId}, 'LTC', ${CHAIN}, 'mainnet', ${walletId},
             ${`ltc1${userId.slice(0, 8)}`}, ${`key-${userId}`}, ${`urn:custody:${userId}`})
   `
   await sql`
     insert into deposit_credits
       (id, user_id, assignment_id, wallet_id, chain, network, address_key, asset_code, amount,
        tx_hash, block_height, confirmations, credit_key)
-    values (${randomUUID()}, ${userId}, ${assignmentId}, ${walletId}, 'litecoin', 'mainnet',
+    values (${randomUUID()}, ${userId}, ${assignmentId}, ${walletId}, ${CHAIN}, 'mainnet',
             ${`key-${userId}`}, 'LTC', 1000, ${`0x${userId.replace(/-/g, '')}`}, 10, 6,
             ${`litecoin:mainnet:${userId}:0`})
   `
@@ -67,13 +85,37 @@ async function seedTrail(userId: string): Promise<{ walletId: string; assignment
     insert into withdrawals
       (id, user_id, chain, network, asset_code, destination_address, destination_key, amount, fee,
        net, idempotency_key)
-    values (${randomUUID()}, ${userId}, 'litecoin', 'mainnet', 'LTC', 'ltc1destination',
+    values (${randomUUID()}, ${userId}, ${CHAIN}, 'mainnet', 'LTC', 'ltc1destination',
             'destkey', 500, 10, 490, ${namespacedKey(userId, 'POST /v1/withdrawals', 'client-1')})
   `
   await sql`
     insert into idempotency_keys (key, user_id, route, request_hash, response)
     values (${namespacedKey(userId, 'POST /v1/wallets', 'client-1')}, ${userId},
             'POST /v1/wallets', 'hash', ${sql.json({ userId, walletId })})
+  `
+  // A SECOND wallet, `external` — the person's own self-custody address, linked by a signed
+  // statement. Separate from the managed one above because `wallets_custody_urn_ck` is an equality:
+  // an external wallet must have NO custody urn, exactly as a managed one must have one.
+  const externalId = randomUUID()
+  await sql`
+    insert into wallets (id, user_id, origin, chain, network, address, address_key, status)
+    values (${externalId}, ${userId}, 'external', ${CHAIN}, 'mainnet',
+            ${`ltc1ext${userId.slice(0, 8)}`}, ${`extkey-${userId}`}, 'active')
+  `
+  // The nonce is RANDOM, exactly as `links.ts`'s `newNonce()` makes it — 16 random bytes, never
+  // derived from the person. Writing a fixture nonce that embedded the id would have been a fixture
+  // inventing a defect: the sweep below would fail on a column the erasure deliberately keeps,
+  // because it is the anti-replay record rather than a fact about anybody.
+  const nonce = randomUUID().replace(/-/g, '')
+  await sql`
+    insert into link_challenges (nonce, wallet_id, user_id, scheme, message, domain, uri, expires_at)
+    values (${nonce}, ${externalId}, ${userId}, 'eip4361',
+            ${`cloudsforge.online wants you to sign in with your account ${userId}`},
+            'cloudsforge.online', 'https://cloudsforge.online', now() + interval '1 hour')
+  `
+  await sql`
+    insert into external_wallet_links (wallet_id, user_id, scheme, challenge_nonce, signature, verified_at)
+    values (${externalId}, ${userId}, 'eip4361', ${nonce}, '0xdeadbeef', now())
   `
   await sql`
     insert into outbox (topic, key, producer, actor, payload)
@@ -114,13 +156,34 @@ test('a person is gone from every column, including the text primary key', { ski
   await assertNoTraceOf(ALICE)
 })
 
+test('the self-custody proof is neutralised, and the link survives', { skip }, async () => {
+  await seedTrail(ALICE)
+  const outcome = await eraseUser(sql as never, ALICE)
+  assert.deepEqual({ links: outcome.links, challenges: outcome.challenges }, { links: 1, challenges: 1 })
+
+  // The link stays: `external_wallet_authorisations` cascades from it and a withdrawal may name it.
+  // What goes is the PROOF — a value produced by the person's own private key binding them to a
+  // statement, which is an identifying artefact in a way the row's other columns are not.
+  const [link] = await sql<{ signature: string | null; verified_at: Date | null }[]>`
+    select signature, verified_at from external_wallet_links
+  `
+  assert.equal(link?.signature, null)
+  assert.ok(link?.verified_at, 'the verification timestamp went with the signature')
+
+  // A SIWE statement names the address, the domain and the intent verbatim. The nonce and the
+  // timestamps stay, because they are the anti-replay record rather than a fact about a person.
+  const [challenge] = await sql<{ message: string; nonce: string }[]>`select message, nonce from link_challenges`
+  assert.equal(challenge?.message, '')
+  assert.equal(challenge?.nonce.length, 32, 'the anti-replay nonce was swept away with the message')
+})
+
 test('the money record survives, joined and reconciling', { skip }, async () => {
   const { walletId, assignmentId } = await seedTrail(ALICE)
   const outcome = await eraseUser(sql as never, ALICE)
 
   assert.deepEqual(
     { wallets: outcome.wallets, credits: outcome.credits, withdrawals: outcome.withdrawals },
-    { wallets: 1, credits: 1, withdrawals: 1 },
+    { wallets: 2, credits: 1, withdrawals: 1 },
   )
 
   // Every row is still there and still joined. Deleting any of them would leave the ledger holding
