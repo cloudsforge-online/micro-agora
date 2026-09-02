@@ -14,7 +14,7 @@
  */
 
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import test, { after, before, beforeEach } from 'node:test'
 import type postgres from 'postgres'
 import { eraseUser } from './erasure.ts'
@@ -48,38 +48,54 @@ beforeEach(async () => {
   if (enabled) await resetWallet(sql)
 })
 
-/** One person's whole trail: a wallet, a deposit address, a credit, a withdrawal, a key, an event. */
 /**
  * One person's whole trail: a wallet, a deposit address, a credit, a withdrawal, a key, an event.
  *
- * `custody_key_urn` is NOT optional here even though the column is nullable. `wallets_custody_urn_ck`
- * is an EQUALITY between two booleans — `(origin = 'managed') = (custody_key_urn is not null)` — so
- * a managed wallet without one fails with a 23514 that reads like a chain problem rather than a
- * null one.
+ * ── THE FIXTURE MUST NOT INVENT A DEFECT, WHICH IS EASIER TO DO THAN IT SOUNDS ────────────────
+ *
+ * Every value here is derived through `chainish()` — a hash of the user id, standing in for the
+ * chain data a real row holds — rather than from the uuid itself. That is not cosmetic. The
+ * catalogue sweep below fails on ANY column containing the raw id, so a fixture that wrote
+ * `address_key = key-<userId>` would fail on a column the erasure deliberately leaves alone, and
+ * the failure would look like a hole in the handler rather than a hole in the fixture.
+ *
+ * The real values are never derived from a person: `address_key` is the COMPARISON form of the
+ * address (`addresses.ts` — lower-cased for EVM and Ember, byte-identical elsewhere), `tx_hash` is
+ * whatever the chain produced, `credit_key` is `<chain>:<network>:<txHash>:<logIndex>`, and
+ * `custody_key_urn` names a custody key. The two values that DO embed the person are
+ * `idempotency_keys.key` and `withdrawals.idempotency_key`, both built by `namespacedKey`, and
+ * those are seeded with the real thing because the erasure must rewrite them.
+ *
+ * `custody_key_urn` is also not optional here even though the column is nullable:
+ * `wallets_custody_urn_ck` is an EQUALITY between two booleans — `(origin = 'managed') =
+ * (custody_key_urn is not null)` — so a managed wallet without one fails a CHECK rather than a NOT
+ * NULL, which points at the wrong column.
  */
 async function seedTrail(userId: string): Promise<{ walletId: string; assignmentId: string }> {
   const walletId = randomUUID()
   const assignmentId = randomUUID()
+  // Stands in for chain data. Distinct per person, and containing no part of the uuid.
+  const tag = createHash('sha256').update(userId).digest('hex').slice(0, 32)
   await sql`
     insert into wallets
       (id, user_id, origin, chain, network, address, address_key, label, status, custody_key_urn)
     values (${walletId}, ${userId}, 'managed', ${CHAIN}, 'mainnet',
-            ${`ltc1${userId.slice(0, 8)}`}, ${`key-${userId}`}, 'my rent wallet', 'active',
-            ${`urn:custody:${userId}`})
+            ${`ltc1${tag}`}, ${`ltc1${tag}`}, 'my rent wallet', 'active',
+            ${`urn:cf:custody:ltc:${tag}`})
   `
   await sql`
     insert into deposit_address_assignments
       (id, user_id, asset_code, chain, network, wallet_id, address, address_key, custody_key_urn)
     values (${assignmentId}, ${userId}, 'LTC', ${CHAIN}, 'mainnet', ${walletId},
-            ${`ltc1${userId.slice(0, 8)}`}, ${`key-${userId}`}, ${`urn:custody:${userId}`})
+            ${`ltc1${tag}`}, ${`ltc1${tag}`}, ${`urn:cf:custody:ltc:${tag}`})
   `
   await sql`
     insert into deposit_credits
       (id, user_id, assignment_id, wallet_id, chain, network, address_key, asset_code, amount,
        tx_hash, block_height, confirmations, credit_key)
     values (${randomUUID()}, ${userId}, ${assignmentId}, ${walletId}, ${CHAIN}, 'mainnet',
-            ${`key-${userId}`}, 'LTC', 1000, ${`0x${userId.replace(/-/g, '')}`}, 10, 6,
-            ${`litecoin:mainnet:${userId}:0`})
+            ${`ltc1${tag}`}, 'LTC', 1000, ${`0x${tag}`}, 10, 6,
+            ${`ltc:mainnet:0x${tag}:0`})
   `
   await sql`
     insert into withdrawals
@@ -100,7 +116,7 @@ async function seedTrail(userId: string): Promise<{ walletId: string; assignment
   await sql`
     insert into wallets (id, user_id, origin, chain, network, address, address_key, status)
     values (${externalId}, ${userId}, 'external', ${CHAIN}, 'mainnet',
-            ${`ltc1ext${userId.slice(0, 8)}`}, ${`extkey-${userId}`}, 'active')
+            ${`ltc1ext${tag}`}, ${`ltc1ext${tag}`}, 'active')
   `
   // The nonce is RANDOM, exactly as `links.ts`'s `newNonce()` makes it — 16 random bytes, never
   // derived from the person. Writing a fixture nonce that embedded the id would have been a fixture
