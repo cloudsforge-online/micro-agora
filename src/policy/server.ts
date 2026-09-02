@@ -73,6 +73,7 @@ import {
 import { disableRule, listRules, putRule, ruleHistory, trustAddress, type Db } from './store.ts'
 import type { DecisionContext, DecisionRequest } from './evaluate.ts'
 import type { RequestContext as KernelContext, RouteSpec } from '../kernel.ts'
+import { eraseEveryPlane } from '../erasureplanes.ts'
 
 /** The verifier as this file needs it. An interface, so a test does not need a JWKS. */
 export interface PrincipalVerifier {
@@ -803,11 +804,15 @@ function buildRoutes(): Route[] {
           )
         }
 
-        const outcome = await withInbox(ctx.sql, topic, eventId, (tx) =>
-          eraseUser(tx, userId, {
-            eventId,
-            tombstoneAt: erasureInstant(payload['tombstoneAt']),
-          }),
+        // EVERY plane, from the SELECTOR. `ctx.sql` is one resolved handle and this delivery
+        // carries no `CF-Network`, so it was always mainnet's — see `../erasureplanes.ts`.
+        const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+          withInbox(handle, topic, eventId, (tx) =>
+            eraseUser(tx, userId, {
+              eventId,
+              tombstoneAt: erasureInstant(payload['tombstoneAt']),
+            }),
+          ),
         )
         // Counts and field names only. The subject is never logged: writing the identifier of the
         // person who asked to be forgotten into an aggregator with its own retention period would
@@ -815,12 +820,16 @@ function buildRoutes(): Route[] {
         ctx.log.info('erasure processed', {
           topic,
           eventId,
-          outcome: outcome.status,
-          ...(outcome.status === 'processed' ? outcome.value : {}),
+          outcome: sweep.processed > 0 ? 'processed' : 'duplicate',
+          planes: sweep.planes.map((plane) => ({
+            network: plane.network,
+            status: plane.status,
+            ...(plane.value ?? {}),
+          })),
         })
         return {
           status: 202,
-          body: { status: outcome.status === 'duplicate' ? 'duplicate' : 'recorded' },
+          body: { status: sweep.processed === 0 ? 'duplicate' : 'recorded' },
         }
       },
     },

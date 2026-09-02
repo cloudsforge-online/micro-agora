@@ -38,6 +38,9 @@ import {
 import type { Logger } from '@cloudsforge/telemetry'
 import type { Db, Tx } from './outbox.ts'
 import { withInbox } from './outbox.ts'
+import { eraseEveryPlane } from '../erasureplanes.ts'
+import { IDENTITY_USER_DELETED } from './topics.ts'
+import type { NetworkSql } from '@cloudsforge/db'
 import { markSold } from './economy.ts'
 import { eraseUser } from './erasure.ts'
 import { CONSUMED } from './topics.ts'
@@ -48,6 +51,15 @@ export type InboundVerdict =
 
 export interface InboundDeps {
   readonly sql: Db
+  /**
+   * Every plane this process holds, for the ONE topic that is not about an estate.
+   *
+   * `sql` above is the request's handle and stays the handle for every other topic: a sale, a
+   * settlement and a provisioning all happened in one estate and belong to it. An erasure names a
+   * person, who has one account and rows on both — see `../erasureplanes.ts` for the measurement
+   * that showed every erasure since 2026-08-19 landing on mainnet alone (micro-org#474).
+   */
+  readonly planes: NetworkSql
   readonly logger: Logger
   /** Every secret that may have signed an inbound delivery. Rotation is a list, not a swap. */
   readonly secrets: readonly string[]
@@ -141,6 +153,20 @@ export async function handleDelivery(
     // errored: a subscription is configuration, and a configuration mistake must not look like an
     // outage to the producer's relay.
     return { status: 202, outcome: 'ignored' }
+  }
+
+  // ONE INBOX CLAIM PER PLANE FOR AN ERASURE, the request's plane for everything else.
+  //
+  // Sweeping every topic would write a second copy of every sale and every provisioning into the
+  // other estate's tables, which is the data fault the selector exists to prevent. Sweeping none
+  // leaves half of every erasure undone. The topic is what tells them apart, and it is known here.
+  if (envelope.topic === IDENTITY_USER_DELETED) {
+    const sweep = await eraseEveryPlane(deps.planes, (handle: Db) =>
+      withInbox(handle, envelope.topic, eventId, async (tx) => {
+        await apply({ ...deps, sql: handle }, tx, envelope)
+      }),
+    )
+    return { status: 200, outcome: sweep.processed > 0 ? 'processed' : 'duplicate' }
   }
 
   const outcome = await withInbox(deps.sql, envelope.topic, eventId, async (tx) => {

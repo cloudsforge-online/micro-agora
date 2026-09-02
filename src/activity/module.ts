@@ -199,6 +199,9 @@ export async function createActivityModule(host: HostRuntime): Promise<ActivityM
         singleNetwork: ownNetwork,
         ingest: {
           sql: db,
+          // Both planes, for `identity.user.deleted` alone — `ingest.ts` picks by topic. `db` above
+          // stays the handle every feed write uses.
+          planes: activitySql,
           logger,
           metrics,
           // activity's accept-list, reaching activity's ingest route and nothing else.

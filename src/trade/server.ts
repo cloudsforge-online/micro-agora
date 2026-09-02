@@ -129,6 +129,7 @@ import {
 import { BarRejectedError, assertIngestable, getSeries, ingestBars, listSeries, registerSeries } from './series.ts'
 import { RateUnavailableError, type PricingClient } from './pricingclient.ts'
 import { LedgerRefusedError, LedgerUnavailableError, type LedgerClient } from './ledgerclient.ts'
+import { eraseEveryPlane } from '../erasureplanes.ts'
 import { SIGNATURE_HEADER, verifyEventSignature, withInbox, withOutbox, type Db } from './outbox.ts'
 import type { Clock } from './rng.ts'
 import type { Bar } from './indicators.ts'
@@ -1023,21 +1024,32 @@ function buildRoutes(): Route[] {
       if (!UUID.test(eventId)) throw new BadRequestError('the event id must be a uuid')
       if (!SUBSCRIBED_TOPICS.has(topic)) return { status: 202, body: { status: 'ignored' } }
 
-      const outcome = await withInbox(ctx.sql, topic, eventId, async (tx) => {
-        // 03 §2 rule 6, and 17 §2: every service storing `user_id` subscribes to this and
-        // acknowledges within its stated SLA. Bots are deleted; their fills and settlements go with
-        // them by cascade. The idempotency claims are kept — they name a urn, not a user, and they
-        // are the record that a charge was or was not made.
-        const userId = envelope.payload?.['userId']
-        if (typeof userId !== 'string' || !UUID.test(userId)) {
-          throw new BadRequestError('identity.user.deleted requires a uuid userId')
-        }
-        const deleted = await tx`delete from bots where user_id = ${userId} returning id`
-        await tx`delete from backtests where user_id = ${userId}`
-        return { bots: deleted.length }
+      // VALIDATED BEFORE THE SWEEP: a malformed envelope is a 400 the relay must not retry, and a
+      // throw from inside a plane is a failure it SHOULD retry. They must not share a code path.
+      const erasedUserId = envelope.payload?.['userId']
+      if (typeof erasedUserId !== 'string' || !UUID.test(erasedUserId)) {
+        throw new BadRequestError('identity.user.deleted requires a uuid userId')
+      }
+      // 03 §2 rule 6, and 17 §2: every service storing `user_id` subscribes to this and
+      // acknowledges within its stated SLA. Bots are deleted; their fills and settlements go with
+      // them by cascade. The idempotency claims are kept — they name a urn, not a user, and they
+      // are the record that a charge was or was not made.
+      //
+      // `deps.sql` — the SELECTOR — not `ctx.sql`. See `../erasureplanes.ts`.
+      const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+        withInbox(handle, topic, eventId, async (tx) => {
+          const deleted = await tx`delete from bots where user_id = ${erasedUserId} returning id`
+          await tx`delete from backtests where user_id = ${erasedUserId}`
+          return { bots: deleted.length }
+        }),
+      )
+      ctx.log.info('inbound event', {
+        topic,
+        eventId,
+        outcome: sweep.processed > 0 ? 'processed' : 'duplicate',
+        planes: sweep.planes.map((plane) => ({ network: plane.network, status: plane.status })),
       })
-      ctx.log.info('inbound event', { topic, eventId, outcome: outcome.status })
-      return { status: 202, body: { status: outcome.status === 'duplicate' ? 'duplicate' : 'recorded' } }
+      return { status: 202, body: { status: sweep.processed === 0 ? 'duplicate' : 'recorded' } }
     }),
   ]
 }

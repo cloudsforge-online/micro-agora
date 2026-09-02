@@ -42,6 +42,7 @@ import type { Lifecycle } from '@cloudsforge/lifecycle'
 import { NetworkUnknownError, requestNetwork, type Network } from '@cloudsforge/http'
 import type { NetworkSql } from '@cloudsforge/db'
 import type { RequestContext as KernelContext, RouteSpec } from '../kernel.ts'
+import { eraseEveryPlane } from '../erasureplanes.ts'
 import { Metrics, newRequestId, type Logger } from '@cloudsforge/telemetry'
 import { userSubject } from '@cloudsforge/contracts-money'
 import { UnknownProductError, listCatalogue } from './catalogue.ts'
@@ -774,27 +775,38 @@ function buildRoutes(): Route[] {
 
       const done = deps.lifecycle.track()
       try {
-        const outcome = await withInbox(ctx.sql, topic, eventId, (tx) => eraseUser(tx, userId))
+        // EVERY plane, from the SELECTOR. See `../erasureplanes.ts`.
+        const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+          withInbox(handle, topic, eventId, (tx) => eraseUser(tx, userId)),
+        )
         // Counts and field names only. The user id is never logged — logging the identifier of the
         // person who asked to be forgotten, into an aggregator with its own retention, is the
         // shape of defect this handler exists to fix.
         ctx.log.info('erasure processed', {
           topic,
           eventId,
-          outcome: outcome.status,
-          ...(outcome.status === 'processed' ? outcome.value : {}),
+          outcome: sweep.processed > 0 ? 'processed' : 'duplicate',
+          planes: sweep.planes.map((plane) => ({
+            network: plane.network,
+            status: plane.status,
+            ...(plane.value ?? {}),
+          })),
         })
-        if (outcome.status === 'processed' && outcome.value.payoutsCancelled > 0) {
-          // Not a failure, but somebody left with money owed. Surfaced at warn so it is not buried
-          // in an info line nobody reads.
-          ctx.log.warn('erasure cancelled unpaid payouts', {
-            eventId,
-            payoutsCancelled: outcome.value.payoutsCancelled,
-          })
+        for (const plane of sweep.planes) {
+          if (plane.value && plane.value.payoutsCancelled > 0) {
+            // Not a failure, but somebody left with money owed. Surfaced at warn so it is not
+            // buried in an info line nobody reads. Per plane, because money owed on testnet and
+            // money owed on mainnet are different sums and one number cannot be both.
+            ctx.log.warn('erasure cancelled unpaid payouts', {
+              eventId,
+              network: plane.network,
+              payoutsCancelled: plane.value.payoutsCancelled,
+            })
+          }
         }
         return {
           status: 202,
-          body: { status: outcome.status === 'duplicate' ? 'duplicate' : 'recorded' },
+          body: { status: sweep.processed === 0 ? 'duplicate' : 'recorded' },
         }
       } finally {
         done()

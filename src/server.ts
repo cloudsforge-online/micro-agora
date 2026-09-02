@@ -72,6 +72,7 @@ import {
   type RequestContext as KernelContext,
   type RouteSpec,
 } from './kernel.ts'
+import { eraseEveryPlane } from './erasureplanes.ts'
 import { SIGNATURE_HEADER, signEvent, withInbox, withOutbox, type Db } from './outbox.ts'
 import { RateLimitError } from './ratelimit.ts'
 import {
@@ -825,13 +826,27 @@ function buildRoutes(): Route[] {
 
       const done = deps.lifecycle.track()
       try {
-        const outcome = await withInbox(ctx.sql, topic, eventId, async (tx) =>
-          eraseSubject(tx, subject),
+        // `deps.sql` — the SELECTOR — and not `ctx.sql`, which is one resolved handle. An erasure
+        // names a person, and a person has rows on both planes; see `erasureplanes.ts` for the
+        // measurement that showed every erasure since 2026-08-19 landing on mainnet only.
+        const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+          withInbox(handle, topic, eventId, async (tx) => eraseSubject(tx, subject)),
         )
-        if (outcome.status === 'duplicate') return { status: 200, body: { status: 'duplicate' } }
+        if (sweep.processed === 0) return { status: 200, body: { status: 'duplicate' } }
         return {
           status: 200,
-          body: { status: 'processed', erased: outcome.value !== null },
+          body: {
+            status: 'processed',
+            // The field this body has always had, kept: true when ANY plane found the subject.
+            erased: sweep.planes.some((plane) => plane.value !== null),
+            // And per plane beside it, because "erased: true" over two databases cannot say which
+            // one, and the whole defect this replaced was invisible for exactly that reason.
+            planes: sweep.planes.map((plane) => ({
+              network: plane.network,
+              status: plane.status,
+              erased: plane.value !== null,
+            })),
+          },
         }
       } finally {
         done()

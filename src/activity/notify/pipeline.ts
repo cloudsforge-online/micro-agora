@@ -25,6 +25,8 @@
 
 import { backoffFor } from '@cloudsforge/jobs'
 import type { Logger, Metrics } from '@cloudsforge/telemetry'
+import type { NetworkSql } from '@cloudsforge/db'
+import { eraseEveryPlane } from '../../erasureplanes.ts'
 import {
   ERASURE_TOPICS,
   outcomeOf,
@@ -93,6 +95,15 @@ import {
 
 export interface PipelineDeps {
   readonly sql: Db
+  /**
+   * Every plane this process holds, for `identity.user.deleted` and nothing else.
+   *
+   * OPTIONAL, and the single-plane branch below is kept rather than deleted, because the digest and
+   * dispatch paths build a `PipelineDeps` from a timer with no request behind it and never see an
+   * erasure. A caller that omits it gets today's behaviour on today's handle; the ingest path,
+   * which is the only one an erasure arrives on, always passes it.
+   */
+  readonly planes?: NetworkSql
   readonly logger: Logger
   readonly metrics: Metrics
   readonly adapters: AdapterRegistry
@@ -441,6 +452,36 @@ export async function ingestEvent(
    */
   network: string | null = null,
 ): Promise<IngestOutcome> {
+  // ══════════════════════════════════════════════════════════════════════════════════════════════
+  // THE ONE TOPIC THAT IS NOT ABOUT AN ESTATE.
+  //
+  // A notification belongs to the estate that produced the event — `network` above is stamped onto
+  // every delivery for exactly that reason — so everything else runs on `deps.sql`, the handle for
+  // this delivery. `identity.user.deleted` names a PERSON, who has notifications on both planes,
+  // and it arrives with no `CF-Network` for the kernel to resolve. See `../../erasureplanes.ts`.
+  // ══════════════════════════════════════════════════════════════════════════════════════════════
+  if (ERASURE_TOPICS.has(event.topic) && deps.planes) {
+    const userId =
+      typeof event.payload['user_id'] === 'string' ? (event.payload['user_id'] as string) : event.key
+    const sweep = await eraseEveryPlane(deps.planes, (handle: Db) =>
+      withInbox(handle, event.topic, event.id, async (tx) => await eraseUser(tx, userId)),
+    )
+    let notifications = 0
+    for (const plane of sweep.planes) {
+      if (plane.value !== null) {
+        notifications += plane.value
+        deps.logger.info('user erased', {
+          topic: event.topic,
+          network: plane.network,
+          notifications: plane.value,
+        })
+      }
+    }
+    return sweep.processed > 0
+      ? ({ kind: 'erased', notifications } satisfies IngestOutcome)
+      : ({ kind: 'duplicate_event' } satisfies IngestOutcome)
+  }
+
   const outcome = await withInbox(deps.sql, event.topic, event.id, async (tx) => {
     if (ERASURE_TOPICS.has(event.topic)) {
       const userId =

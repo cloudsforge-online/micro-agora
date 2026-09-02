@@ -64,6 +64,7 @@ import type { NetworkSql } from '@cloudsforge/db'
 import type { RequestContext as KernelContext, RouteSpec } from '../kernel.ts'
 import { Metrics, newRequestId, type Logger } from '@cloudsforge/telemetry'
 import type { JobQueue } from '@cloudsforge/jobs'
+import { eraseEveryPlane } from '../erasureplanes.ts'
 import { SIGNATURE_HEADER, signEvent, withInbox, type Db } from './outbox.ts'
 import {
   IdempotencyInFlightError,
@@ -750,26 +751,49 @@ function buildRoutes(): Route[] {
         // Withdrawing a listing releases escrows, which is a network call per escrow; doing that
         // inside the webhook would couple billing's relay timeout to how many bids a seller has,
         // and a slow withdrawal would make the relay redeliver an event we have already acted on.
-        const outcome = await withInbox(ctx.sql, topic, eventId, async (tx) => {
-          const rows = await tx<{ id: string }[]>`
-            update listings set expires_at = now(), updated_at = now()
-             where seller_subject = ${subject} and status in ('draft','active')
-            returning id
-          `
-          return rows.length
-        })
-        if (outcome.status === 'processed') {
-          ctx.log.info('seller listings marked for withdrawal', {
-            topic,
-            subject,
-            listings: outcome.value,
-          })
+        // EVERY plane, from the SELECTOR. `ctx.sql` is one handle, and an internal POST carries
+        // no `CF-Network`, so it was always mainnet's — see `../erasureplanes.ts`.
+        const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+          withInbox(handle, topic, eventId, async (tx) => {
+            const rows = await tx<{ id: string }[]>`
+              update listings set expires_at = now(), updated_at = now()
+               where seller_subject = ${subject} and status in ('draft','active')
+              returning id
+            `
+            return rows.length
+          }),
+        )
+        for (const plane of sweep.planes) {
+          if (plane.status === 'processed') {
+            // Counts and field names only. `subject` was logged here until 2026-09-02, which put
+            // `user:<uuid>` — the id of the person who has just asked to be forgotten — into a log
+            // that outlives the rows the same request erased. Every other handler in the estate
+            // says this in its own comment; this one did the opposite.
+            ctx.log.info('seller listings marked for withdrawal', {
+              topic,
+              network: plane.network,
+              listings: plane.value,
+            })
+          }
         }
         return {
           status: 202,
           body: {
-            status: outcome.status,
-            ...(outcome.status === 'processed' ? { listings: outcome.value } : {}),
+            status: sweep.processed > 0 ? 'processed' : 'duplicate',
+            // The field this body has always had, summed across the planes.
+            ...(sweep.processed > 0
+              ? {
+                  listings: sweep.planes.reduce(
+                    (total, plane) => total + (plane.value ?? 0),
+                    0,
+                  ),
+                }
+              : {}),
+            planes: sweep.planes.map((plane) => ({
+              network: plane.network,
+              status: plane.status,
+              ...(plane.value === null ? {} : { listings: plane.value }),
+            })),
           },
         }
       } finally {

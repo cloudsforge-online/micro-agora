@@ -326,6 +326,12 @@ describe('only a module may read its own configuration', () => {
       '../migratortargets.ts',
       '../../kernel.ts',
       '../../migratortargets.ts',
+      // Added 2026-09-02, on the same test as the two above: it carries no route, no store and no
+      // configuration — it chooses which database HANDLES a callback is run against and nothing
+      // else. A nested module needs it for exactly one topic, `identity.user.deleted`, which is
+      // the one event in the estate that is about a person rather than about an estate
+      // (micro-org#474).
+      '../../erasureplanes.ts',
     ]);
     const offences: string[] = [];
     for (const module of MODULES) {

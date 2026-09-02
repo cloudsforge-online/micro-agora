@@ -24,7 +24,7 @@ import {
   type EventEnvelope,
   type TopicName,
 } from '@cloudsforge/contracts-events'
-import { migrate, type Sql as DbSql } from '@cloudsforge/db'
+import { migrate, networkSql, type Sql as DbSql } from '@cloudsforge/db'
 import { Logger, Metrics, registerHttpMetrics } from '@cloudsforge/telemetry'
 import { MIGRATIONS, TABLES } from './migrations.ts'
 import { registerServiceMetrics } from './server.ts'
@@ -82,6 +82,9 @@ export function testMetrics(): Metrics {
 export function ingestDeps(sql: Db, options: { readonly now?: () => number } = {}): IngestDeps {
   return {
     sql,
+    // ONE plane: the suite has one database, so the erasure sweep runs exactly once and every
+    // existing assertion about counts is unchanged.
+    planes: networkSql({ mainnet: sql as unknown as DbSql }),
     logger: quietLogger(),
     metrics: testMetrics(),
     secrets: [SECRET],

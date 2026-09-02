@@ -100,6 +100,7 @@ import { NetworkUnknownError, requestNetwork, type Network } from '@cloudsforge/
 import type { NetworkSql } from '@cloudsforge/db'
 import { Metrics, newRequestId, type Logger } from '@cloudsforge/telemetry'
 import type { Actor } from '@cloudsforge/contracts-events'
+import { eraseEveryPlane, planeTotals } from '../erasureplanes.ts'
 import { SIGNATURE_HEADER, withInbox, withOutbox, type Db, type Emit, type Tx } from './outbox.ts'
 import {
   IdempotencyInFlightError,
@@ -1669,7 +1670,12 @@ function buildRoutes(): Route[] {
 
       const done = deps.lifecycle.track()
       try {
-        const outcome = await withInbox(ctx.sql, topic, eventId, async (tx) => {
+        // EVERY plane, from the SELECTOR, not `ctx.sql`. Both topics this route accepts are
+        // identity facts — an org that no longer exists and a person who has asked to be forgotten
+        // — and neither is true of one estate and false of the other. See `../erasureplanes.ts`
+        // for the measurement that showed the one-plane version leaving the testnet rows.
+        const sweep = await eraseEveryPlane(deps.sql, (handle: Db) =>
+          withInbox(handle, topic, eventId, async (tx) => {
           if (topic === USER_DELETED_TOPIC) {
             // ══════════════════════════════════════════════════════════════════════════════════
             // GDPR erasure. This branch USED TO BE `return { revoked: 0, suspended: false }` with
@@ -1774,23 +1780,37 @@ function buildRoutes(): Route[] {
           const revoked = await revokeOrgKeys(tx, org.id, 'service:identity', 'organisation deleted')
           for (const key of revoked) emitKeyRevoked((event) => void emitInTx(tx, deps.producer, event), key, 'service:identity')
           return { revoked: revoked.length, suspended: true }
-        })
-        if (outcome.status === 'processed' && outcome.value.revoked > 0) {
-          deps.metrics.increment(
-            'devplatform_keys_revoked_total',
-            { source: 'event' },
-            outcome.value.revoked,
-          )
-          ctx.log.info('organisation suspended and its keys revoked', {
-            topic,
-            revoked: outcome.value.revoked,
-          })
+          }),
+        )
+        // Once per plane that actually revoked something. The counter is a count of KEYS, so
+        // summing the planes is the honest total; a single increment of the first plane's number
+        // would under-report by exactly the estate nobody was looking at.
+        for (const plane of sweep.planes) {
+          if (plane.value && plane.value.revoked > 0) {
+            deps.metrics.increment(
+              'devplatform_keys_revoked_total',
+              { source: 'event' },
+              plane.value.revoked,
+            )
+            ctx.log.info('organisation suspended and its keys revoked', {
+              topic,
+              network: plane.network,
+              revoked: plane.value.revoked,
+            })
+          }
         }
         return {
           status: 202,
           body: {
-            status: outcome.status,
-            ...(outcome.status === 'processed' ? { ...outcome.value } : {}),
+            status: sweep.processed > 0 ? 'processed' : 'duplicate',
+            // The fields this body has always had — `revoked` summed, `suspended` true if any
+            // plane suspended — and the per-plane breakdown beside them.
+            ...planeTotals(sweep),
+            planes: sweep.planes.map((plane) => ({
+              network: plane.network,
+              status: plane.status,
+              ...(plane.value ?? {}),
+            })),
           },
         }
       } finally {

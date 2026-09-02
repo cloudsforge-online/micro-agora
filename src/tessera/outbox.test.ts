@@ -4,6 +4,7 @@
 
 import { test, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { networkSql, type Sql as DbSql } from '@cloudsforge/db'
 import { readFileSync, readdirSync } from 'node:fs'
 import type postgres from 'postgres'
 import {
@@ -263,7 +264,7 @@ test('withInbox runs a handler exactly once, and a failed handler leaves no row'
 
 test('an inbound delivery is verified over the RAW BYTES before it is parsed', { skip }, async () => {
   const secret = 'b'.repeat(32)
-  const deps = { sql: asDb(sql), logger: quietLogger(), secrets: [secret] }
+  const deps = { sql: asDb(sql), planes: networkSql({ mainnet: asDb(sql) as unknown as DbSql }), logger: quietLogger(), secrets: [secret] }
   const envelope = {
     id: '0192f000-0000-7000-8000-000000000003',
     topic: 'market.listing.sold',
@@ -342,7 +343,7 @@ test('a delivery signed with the OLD secret still verifies while the NEW one lea
   // Obviously fake, both of them, and long enough to clear the length rule in `env.ts`.
   const nextSecret = 'rotation-fixture-next-key-not-a-real-secret'
   const priorSecret = 'rotation-fixture-prior-key-not-a-real-secret'
-  const deps = { sql: asDb(sql), logger: quietLogger(), secrets: [nextSecret, priorSecret] }
+  const deps = { sql: asDb(sql), planes: networkSql({ mainnet: asDb(sql) as unknown as DbSql }), logger: quietLogger(), secrets: [nextSecret, priorSecret] }
   const raw = JSON.stringify({
     id: '0192f000-0000-7000-8000-000000000005',
     topic: 'market.listing.sold',
@@ -376,7 +377,7 @@ test('a delivery signed with the OLD secret still verifies while the NEW one lea
 
 test('an authentic delivery naming an unregistered topic is 202, not 400', { skip }, async () => {
   const secret = 'b'.repeat(32)
-  const deps = { sql: asDb(sql), logger: quietLogger(), secrets: [secret] }
+  const deps = { sql: asDb(sql), planes: networkSql({ mainnet: asDb(sql) as unknown as DbSql }), logger: quietLogger(), secrets: [secret] }
   const raw = JSON.stringify({
     id: '0192f000-0000-7000-8000-000000000004',
     topic: 'somebody.else.invented',
