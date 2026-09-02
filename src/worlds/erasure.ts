@@ -1,162 +1,167 @@
 /**
- * Right to erasure — `identity.user.deleted`, handled at last.
+ * Right to erasure — `identity.user.deleted`, handled.
  *
- * ══════════════════════════════════════════════════════════════════════════════════════════════
- * **THIS SERVICE WAS REGISTERED FOR ERASURE AND HAD NO HANDLER.**
+ * Rule 6 of docs/ecosystem/03 §2: every service storing a `user_id` subscribes to this event and
+ * erases. This service stores one in six places and stored NONE of them on request until
+ * micro-org#491 — and then stored none of them again, because **the service merge did not copy
+ * this file**.
  *
- * `deploy/erasure/register.psv` lists worlds as `mixed`,
- * `deploy/scripts/check-erasure-register.py` reported it `ok`, and micro-org#491 was closed as
- * fixed. Measured on mainnet 2026-09-02, after the subscription was repaired and 101 historical
- * erasures were replayed:
+ * ── THE FILE THAT WAS WRITTEN, REVIEWED, AND THEN LEFT BEHIND ─────────────────────────────────
  *
- *     http://agora:4000/v1/events/worlds     101 delivered, 0 failed
- *     worlds.inbox                             0 rows
- *     worlds_testnet.inbox                     0 rows
+ * `078e799` ("Absorb the commerce/games tier") copied twenty-seven files out of the standalone
+ * checkout into `agora/src/worlds/` and copied neither `erasure.ts` nor `erasure.test.ts`. Nothing
+ * caught it: `check-erasure-register.py` globs every `<service>/src/migrations.ts` — a glob whose
+ * two characters before `src` cannot be written inside a block comment, which is its own small
+ * lesson — so it reads the STANDALONE
+ * checkout — which still has the handler — while the running module had none. Measured on mainnet
+ * 2026-09-02, after the subscription was repaired and 101 erasures replayed: 101 deliveries, 0
+ * failures, and 0 inbox rows on either plane, every one of them taking the `202 {status:
+ * 'ignored'}` branch (micro-org#543).
  *
- * Every delivery succeeded and every one took the `202 {status: 'ignored'}` branch, because
- * `server.ts` knew two topics and this was not one of them. A register row is not a handler, and
- * nothing in the estate compared the two (micro-org#543).
+ * This is the standalone file, restored verbatim apart from this paragraph. It is restored rather
+ * than rewritten because the version written here on 2026-09-02 leaked: it rewrote
+ * `reward_grants.user_id` and not `idempotency_key`, which is the exact defect the standalone
+ * file's own comment below records catching a day earlier. A deletion elsewhere in the estate reported success while every profile,
+ * inventory item, achievement and reward grant here stood untouched — including `age_bracket` and
+ * `parental_controls`, which are the two columns in this schema most obviously about a child.
  *
- * ## The shape of the problem
+ * ## Why some rows are kept
  *
- * Two things make this more than a `delete from … where user_id = $1`.
- *
- * **`reward_grants` is money that has already moved.** Each row names a `journal_entry_id` — a
- * posting in the ledger — and `seasons.rewards_granted_shards` is the running total of them, held
- * under `seasons_within_budget`. Deleting a grant would leave a ledger entry no longer reconciled
- * by anything and a season total that no longer matches its rows. So the row is retained and the
- * subject anonymised, Art. 17(3)(b), and the same argument `aetherholm/erasure.ts` makes for a
- * battle the other commander fought.
- *
- * **`provisions` is an idempotency record.** Worlds' own conformance check 5 is "provisioning
- * twice returns the SAME urn". Losing the row turns one purchase into two provisionings.
+ * "Delete everything" is not available and "blank the names" is not compliance, so every table
+ * gets a decision and the decision is written down here rather than in a document that can drift
+ * away from the code. Two rows are retained, both for reasons Article 17(3) actually names, and
+ * both are narrowed to the identifier rather than kept whole.
  *
  * ## The placeholder
  *
- * ONE random uuid per erasure, from `randomUUID()`, never derived from the real id — a hash of a
- * uuid is not an anonymisation when the candidate space is a list of users an attacker already
- * has. Nothing anywhere stores the mapping.
+ * ONE random uuid per erasure, from `randomUUID()`, never derived from the real id. A hash of a
+ * uuid is not an anonymisation: the candidate space is whatever list of users an attacker already
+ * has, and checking it is one hash each. Nothing anywhere stores the mapping, so the placeholder
+ * is a dead end by construction.
  *
- * Reused across every row this erasure retains, deliberately: `player_achievements` is keyed
- * `(user_id, achievement_id)` and `reward_grants_key_uniq` is on `idempotency_key`, so a fresh
- * placeholder per row would change which shapes are representable while buying an unlinkability
- * the retained rows cannot honestly claim anyway — their season, their timestamps and their
- * amounts link them regardless.
+ * It is REUSED across the rows this erasure retains, which is the same declared tradeoff
+ * `aetherholm/src/erasure.ts` makes: the retained rows stay linked to one another. That is
+ * unavoidable once anything is retained at all — a grant's season, amount and timestamp link it to
+ * its neighbours regardless of what the id column says.
  *
- * `provisions.subject` carries the ledger spelling, so it takes `erased:<the same uuid>`; every
- * bare-`uuid` column takes the uuid itself. Each statement below says which spelling it writes.
+ * `provisions.subject` carries billing's spelling (`user:<uuid>`, see `userIdOf`), so it takes
+ * `erased:<the same uuid>`; every bare-`uuid` column takes the uuid itself.
  *
  * ## The decisions
  *
  * | table                  | action    | reasoning, and the lawful basis where a row is kept |
  * | ---------------------- | --------- | --------------------------------------------------- |
- * | `player_profiles`      | DELETE    | The account-scoped profile: a display name the player chose, an avatar, a reputation, equipped cosmetics, an age bracket and parental-control settings. All of it is personal data about one person, nothing else references it — no foreign key in this schema points at it — and no Art. 17(3) exemption covers "the game would like to remember you". Deleted outright, `sanctions` included: a sanction is a record about a person, and the person is gone. |
- * | `player_achievements`  | DELETE    | What one player unlocked. Pure personal progress; the `achievements` catalogue rows are untouched and nothing is diminished by these going. |
- * | `inventory_items`      | DELETE    | What they owned. Two cases and both go: an unlisted item belongs to nobody now, and a LISTED one must not stay on the market under a departed owner — a stranger buying from an account that no longer exists is a worse outcome than a withdrawn listing. `listing_urn` is a reference held by market, which expires its own listings on the same event (its register row is `NOT ERASING — expires listings only`). |
- * | `reward_grants`        | ANONYMISE | Retained. `journal_entry_id` names a ledger posting that HAPPENED, and `seasons.rewards_granted_shards` is the sum of these rows under a CHECK — deleting one would unreconcile a ledger entry and falsify a season's budget. Only `user_id` is personal data: `reason`, `amount_shards` and the two ids are facts about a payment. Basis: Art. 17(3)(b). |
- * | `provisions`           | ANONYMISE | The entitlement idempotency record, unique on `entitlement_id`. Losing it turns one purchase into two provisionings — conformance check 5. `subject` takes the erased spelling and `metadata` is swept textually because it is free-form by contract, so the id can be anywhere in it or nowhere. `sku`, `scope` and `provisioned_urn` stay. Basis: Art. 17(3)(b). |
- * | `outbox`               | REDACT    | The outbound delivery journal. `worlds.profile.updated` is keyed `player:<uuid>` and carries `userId` in its payload. Published rows are an audit trail and unpublished ones must still be delivered, so the id is swept out of `key`, `actor` and `payload` IN PLACE rather than the rows being dropped — dropping an unpublished row loses an event, and every subscriber is erasing the same person on the same signal anyway. |
- * | `seasons`, `titles`, `achievements` | — | No user id. A season is a clock and a budget; a title and an achievement are catalogue. |
- * | `inbox`, `outbox_deliveries`, `event_subscriptions` | — | No user id. `erasure.test.ts` sweeps every table in `TABLES` for the raw uuid, which is the check that catches the column this comment forgot. |
+ * | `player_profiles`      | DELETE    | The personal record itself: a chosen display name, an avatar, reputation, sanctions, `age_bracket` and `parental_controls`. Nothing in this schema references it — no foreign key points here — so nothing else is diminished by its going, and no basis to keep any of it survives the request. Deleted whole. |
+ * | `player_achievements`  | DELETE    | Pure personal progress: which achievements this person unlocked. The `achievements` rows themselves are catalogue, are not personal data, and are untouched. |
+ * | `inventory_items`      | DELETE    | Personal property. A row may be LISTED (`listed_at`/`listing_urn`), and deleting it leaves the market holding a listing whose item no longer exists — which is correct rather than unfortunate: the seller has gone, and a listing that could still be bought would be selling a departed person's possessions. micro-market's own erasure handles its side. |
+ * | `reward_grants`        | ANONYMISE | Retained. `journal_entry_id` ties the row to a posting in the ledger and `reward_grants_key_uniq` is what stops one season's reward being granted twice; dropping the row would break the link between a ledger entry and its cause and re-open the double-grant. Basis: Art. 17(3)(b) — a financial record the platform is obliged to keep. Only `user_id` is personal data here: the season, title, reason and amount are facts about a grant, not about a person. |
+ * | `provisions`           | ANONYMISE | Retained for the same reason `aetherholm` retains its copy: this is the entitlement idempotency record, unique on `entitlement_id`, and losing it turns one purchase into two provisions. `subject` takes the erased spelling and `metadata` is swept for the raw id; the entitlement, sku, scope and urn stay. Basis: Art. 17(3)(b). `lease_owner` is NOT touched — it is the worker instance holding the provisioning lease (`provisioning.ts` writes `input.owner`), not a person. |
+ * | `outbox`               | REDACT    | The outbound delivery journal. Published rows have discharged their purpose but are retained as an audit trail, and unpublished ones must still be delivered — so the id is swept out of `key`, `actor` and `payload` in place rather than the rows being dropped, which would lose an undelivered event. Every subscriber is erasing the same person on the same signal. |
+ * | `inbox`, `jobs`        | —         | Neither holds a user id: the inbox is `(topic, event_id)` and every job payload keys on a provision or a title. Asserted, not assumed — `erasure.test.ts` sweeps every table in the schema for the raw uuid, which is the check that catches the column this table forgot. |
+ * | `titles`, `seasons`, `achievements` | — | Catalogue and geography. No user id in any of them. |
  *
  * ## Both planes
  *
- * The caller sweeps every configured plane through `eraseEveryPlane` (`../erasureplanes.ts`). This
- * service is being given its handler on the day the estate learned that a one-plane erasure is
- * half an erasure, so it gets the two-plane version from its first line rather than becoming the
- * next service to be repaired.
+ * The caller sweeps every configured plane through `../erasureplanes.ts`. `identity`'s relay sends
+ * no `CF-Network`, so a handler run on the request's handle reaches one of the two databases this
+ * module holds — which is what left every testnet erasure undone between 2026-08-19 and
+ * 2026-09-02 (micro-org#474).
+ *
+ * It does not touch a title's own store. Aetherholm keeps its cities and battles in its own
+ * database and erases them on the same event, which is why both services subscribe rather than one
+ * calling the other: a fan-out that depended on this service reaching every title would fail
+ * silently the day a title was down, and an erasure that fails silently is the worst kind.
  */
 
 import { randomUUID } from 'node:crypto'
 import type { Tx } from './outbox.ts'
 
-/** The estate-wide erasure signal. Registered in `contracts/packages/events`. */
 export const USER_DELETED_TOPIC = 'identity.user.deleted'
 
-/** Counts only. Every field is a number: this record is logged, and personal data is not. */
 export interface ErasureOutcome {
-  readonly profilesDeleted: number
-  readonly achievementsDeleted: number
-  readonly inventoryDeleted: number
-  readonly grantsAnonymised: number
-  readonly provisionsAnonymised: number
-  readonly outboxRedacted: number
+  readonly profiles: number
+  readonly achievements: number
+  readonly inventory: number
+  readonly grants: number
+  readonly provisions: number
+  readonly outbox: number
 }
 
 /**
- * Erase one user, inside the caller's transaction.
+ * Erase one user, in one transaction.
  *
- * A `Tx` and not a `Db`: the whole erasure is one atomic act and the inbox row that makes it
- * exactly-once is written in the same transaction by `withInbox`.
- *
- * Idempotent beyond the inbox as well. Every statement selects on the REAL id, which no longer
- * appears anywhere once the first pass has committed, so a second pass over the same user is a
- * sequence of no-ops rather than a second, differently-placeheld erasure. That property is what
- * makes replaying an old event id safe, and replaying old event ids is how the planes that were
- * never erased get repaired (micro-org#474).
+ * Counts are returned rather than logged here, and the caller logs the counts and never the id —
+ * writing the erased id into a log would recreate, in the one store nothing erases, exactly what
+ * the request was to remove.
  */
 export async function eraseUser(tx: Tx, userId: string): Promise<ErasureOutcome> {
-  // One random placeholder for the whole erasure, in both spellings this schema uses. Random and
-  // not derived: see the header. `subject` is the ledger spelling — `user:<uuid>` becomes
-  // `erased:<uuid>`, the same convention aetherholm and tessera pin with a CHECK.
   const placeholder = randomUUID()
   const erasedSubject = `erased:${placeholder}`
+  const subject = `user:${userId}`
+  // For the jsonb and text sweeps. The id is a uuid, so a substring match cannot catch a shorter
+  // string by accident, and matching ANYWHERE is the point: a payload may nest it at any depth.
   const anywhere = `%${userId}%`
 
-  /* ---------------------------------------------------------------- what is purely theirs */
+  /* ------------------------------------------------------------------ deleted outright */
 
-  const profiles = await tx`delete from player_profiles where user_id = ${userId} returning user_id`
-  const achievements = await tx`
-    delete from player_achievements where user_id = ${userId} returning achievement_id
-  `
-  // Listed items go with the rest. A listing left standing under a departed owner is a stranger
-  // buying from an account that does not exist; market withdraws its own side on the same event.
-  const inventory = await tx`delete from inventory_items where user_id = ${userId} returning id`
+  const profiles = await tx`delete from player_profiles where user_id = ${userId} returning 1`
+  const achievements = await tx`delete from player_achievements where user_id = ${userId} returning 1`
+  const inventory = await tx`delete from inventory_items where user_id = ${userId} returning 1`
 
-  /* ---------------------------------------------------------------- what the ledger reconciles */
+  /* ------------------------------------------------------------------ retained, narrowed */
 
-  // NOT deleted. `journal_entry_id` names a posting that happened and `seasons_within_budget`
-  // holds the sum of these rows; removing one would unreconcile the ledger and falsify a budget.
+  // The ledger link and the double-grant guard survive; the person does not. See the table above.
+  /*
+   * `idempotency_key` TOO, AND THAT IS NOT OBVIOUS FROM THE COLUMN NAME.
+   *
+   * `rewardIdempotencyKey` builds `worlds:reward:<season>:<user>:<reason>` — the id is embedded
+   * verbatim in a text column, and the same string is the key the LEDGER posted the entry under.
+   * Rewriting only `user_id` would leave the person named in a column nobody would think to look
+   * at, which is exactly what `erasure.test.ts`'s catalogue sweep exists to catch, and did.
+   *
+   * Rewriting it keeps the guard working: the placeholder is unique, so the row still occupies one
+   * slot under `reward_grants_key_uniq` and no second grant can take it. What is given up is that
+   * a retry of THIS grant would no longer dedupe against it — which cannot happen, because the
+   * person it would be granted to has been deleted.
+   */
   const grants = await tx`
-    update reward_grants set user_id = ${placeholder}
-     where user_id = ${userId}
-    returning id
+    update reward_grants
+       set user_id         = ${placeholder},
+           idempotency_key = replace(idempotency_key, ${userId}, ${placeholder})
+     where user_id = ${userId} or idempotency_key like ${anywhere}
+    returning 1
   `
 
-  /* ---------------------------------------------------------------- what was bought */
-
-  // `metadata` is caller-supplied and swept textually — free-form by contract, so the id can be
-  // anywhere in it or nowhere. A uuid is 36 characters of hex and hyphens, so a substring match
-  // on one cannot be a false positive.
+  // `subject` is billing's spelling; `metadata` is swept because the bridge copies the entitlement
+  // payload into it verbatim and that payload names the buyer.
   const provisions = await tx`
     update provisions
-       set subject = ${erasedSubject},
+       set subject  = ${erasedSubject},
            metadata = replace(metadata::text, ${userId}, ${placeholder})::jsonb,
            updated_at = now()
-     where subject = ${'user:' + userId} or subject = ${userId}
-    returning id
+     where subject = ${subject} or metadata::text like ${anywhere}
+    returning 1
   `
 
-  /* ---------------------------------------------------------------- the delivery journal */
+  /* ------------------------------------------------------------------ redacted in place */
 
-  // Swept, not dropped: an unpublished row still has to be delivered, and dropping it would lose
-  // an event. `replace` over the whole jsonb rather than a path-by-path rewrite, because payload
-  // shapes differ per topic and the id travels in arrays as well as scalars.
+  // Rows are NOT dropped: an unpublished row still has to be delivered, and dropping it would lose
+  // the event rather than anonymise it.
   const outbox = await tx`
     update outbox
-       set key = replace(key, ${userId}, ${placeholder}),
-           actor = replace(actor, ${userId}, ${placeholder}),
+       set key     = replace(key, ${userId}, ${placeholder}),
+           actor   = case when actor is null then null else replace(actor, ${userId}, ${placeholder}) end,
            payload = replace(payload::text, ${userId}, ${placeholder})::jsonb
      where key like ${anywhere} or actor like ${anywhere} or payload::text like ${anywhere}
-    returning id
+    returning 1
   `
 
   return {
-    profilesDeleted: profiles.length,
-    achievementsDeleted: achievements.length,
-    inventoryDeleted: inventory.length,
-    grantsAnonymised: grants.length,
-    provisionsAnonymised: provisions.length,
-    outboxRedacted: outbox.length,
+    profiles: profiles.length,
+    achievements: achievements.length,
+    inventory: inventory.length,
+    grants: grants.length,
+    provisions: provisions.length,
+    outbox: outbox.length,
   }
 }
