@@ -114,7 +114,10 @@ export interface PrincipalVerifier {
 export const NDA_WRITE_SCOPE = 'nda:write';
 
 const GRANTED_TOPIC = 'billing.entitlement.granted';
-const DELETED_TOPIC = 'identity.user.deleted';
+// EXPORTED since 2026-09-02: `module.ts`'s inbound sink branches on it to sweep every plane
+// for this one topic (micro-org#474). A second copy of the string there would be a second place
+// for it to be wrong.
+export const DELETED_TOPIC = 'identity.user.deleted';
 
 /**
  * The topics THIS MODULE acts on.

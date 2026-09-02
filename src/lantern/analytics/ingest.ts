@@ -61,6 +61,7 @@ import {
   type EventEnvelope,
 } from '@cloudsforge/contracts-events'
 import type { Logger, Metrics } from '@cloudsforge/telemetry'
+import type { NetworkSql } from '@cloudsforge/db'
 import { ERASURE_TOPIC, eventFor } from './catalogue.ts'
 import { sanitise, tally, type RejectionReason } from './properties.ts'
 import { deriveSubject, eraseSubject, rawSubject, type PepperRing } from './pseudonym.ts'
@@ -97,6 +98,13 @@ export interface IngestDeps {
    * minted, because erasure reaches them through exactly this object.
    */
   readonly peppers: PepperRing
+  /**
+   * Every plane this process holds, for `identity.user.deleted` and nothing else.
+   *
+   * An event belongs to the estate it happened in; a person does not. See the second pass in
+   * `ingest`, and `../../erasureplanes.ts` for the measurement.
+   */
+  readonly planes: NetworkSql
   readonly toleranceMs?: number
   /** A seam, so the lag histogram and the freshness window can both be tested. */
   readonly now?: () => number
@@ -368,8 +376,55 @@ export async function ingest(deps: IngestDeps, delivery: ParsedDelivery): Promis
   }
 
   if (result.status === 'erased') {
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    // THE OTHER PLANE, AS A SECOND PASS.
+    //
+    // A second pass rather than a sweep of the whole handler, for the same reason `admin-api`
+    // uses one: every other topic this ingest accepts is an EVENT that happened in one estate,
+    // and running the body across both planes would write a second copy of somebody's behaviour
+    // into the other estate's tables. An erasure is the exception — it names a person, and a
+    // person has a pseudonym salt on both planes.
+    //
+    // Measured 2026-09-02: `analytics` held 101 inbox rows for this topic and
+    // `analytics_testnet` 24, the second frozen since the k8s migration (micro-org#474). The
+    // salts destroyed here are the mapping that makes a subject re-identifiable, so leaving one
+    // plane's is leaving the thing the erasure exists to destroy.
+    //
+    // Per-plane inbox claim, so a redelivery repairs the plane that was missed and is a no-op on
+    // the one that was not.
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    const payload =
+      typeof envelope.payload === 'object' && envelope.payload !== null
+        ? (envelope.payload as Record<string, unknown>)
+        : {}
+    const named = typeof payload['userId'] === 'string' ? payload['userId'] : ''
+    const erasedUserId = named.startsWith('user:') ? named.slice('user:'.length) : named
+    let otherPlanes = 0
+    await deps.planes.each(async (handle, network) => {
+      const plane = handle as unknown as Db
+      if (plane === deps.sql) return
+      const done = await plane.begin(async (tx) => {
+        const claimed = await tx<{ event_id: string }[]>`
+          insert into inbox (topic, event_id) values (${envelope.topic}, ${envelope.id})
+          on conflict (topic, event_id) do nothing
+          returning event_id
+        `
+        if (claimed.length === 0) return false
+        await eraseSubject(tx, deps.peppers, rawSubject(`user:${erasedUserId}`), new Date(receivedAt))
+        return true
+      })
+      if (done) {
+        otherPlanes += 1
+        deps.logger.info('a subject was erased on a second plane', {
+          network,
+          correlationId: envelope.correlationId,
+        })
+      }
+    })
+
     deps.logger.info('a subject was erased', {
       alreadyErased: result.alreadyErased,
+      otherPlanes,
       correlationId: envelope.correlationId,
     })
     deps.metrics.increment('analytics_erasures_total')
