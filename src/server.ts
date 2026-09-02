@@ -73,6 +73,7 @@ import {
   type RouteSpec,
 } from './kernel.ts'
 import { eraseEveryPlane } from './erasureplanes.ts'
+import type { InboundSink } from './inboundsink.ts'
 import { SIGNATURE_HEADER, signEvent, withInbox, withOutbox, type Db } from './outbox.ts'
 import { RateLimitError } from './ratelimit.ts'
 import {
@@ -242,6 +243,14 @@ export interface ServerDeps extends MountDeps {
   readonly queue: Pick<JobQueue, 'enqueue'>
   /** Verifies inbound event signatures, and signs outbound ones. */
   readonly eventSigningSecret: string
+  /**
+   * The modules mounted beside the square that also consume the event bus.
+   *
+   * Empty for the standalone listener; studio, foresight and wallet in the merged process. See the
+   * fan-out in `POST /v1/events` for the condition that makes one route serving several modules
+   * legitimate, and `inboundsink.ts` for why the type is not defined in a module.
+   */
+  readonly inbound?: readonly InboundSink[]
   readonly pageSizeMax: number
   readonly beforeScrape?: () => Promise<void>
 }
@@ -826,6 +835,41 @@ function buildRoutes(): Route[] {
 
       const done = deps.lifecycle.track()
       try {
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // THE MOUNTED MODULES FIRST, THEN THIS ONE.
+        //
+        // Order matters only for the refusal, exactly as it does in `emberkin/routes.ts`: a sink
+        // that REJECTS the payload must stop this module writing its own inbox row and answering
+        // 200, because a redelivery is the only thing that will ever make the other half happen.
+        //
+        // The fan-out is legitimate here on the condition `MOUNTED_EVENT_PATHS` states — ONE KEY,
+        // NOT THREE. studio, foresight and wallet all verify with the estate-wide
+        // `OUTBOX_SIGNING_SECRET` this route just checked, and all three subscribe to
+        // `identity.user.deleted`, so routing it to the square alone would answer 200 to a
+        // deletion three quarters of which never happened. Each sink resolves its OWN module's
+        // handles from its OWN selector; there is no parameter through which one could be handed
+        // another's database (micro-org#534).
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        const fanout: Record<string, string> = {}
+        for (const sink of deps.inbound ?? []) {
+          if (!sink.topics.has(topic)) continue
+          const outcome = await sink.deliver(ctx.network, topic, eventId, payload)
+          if (outcome.status === 'rejected') {
+            deps.metrics.increment('agora_events_rejected_total', { reason: 'malformed' })
+            throw new BadRequestError(`${sink.module}: ${outcome.reason}`)
+          }
+          fanout[sink.module] = outcome.status
+          if (outcome.status === 'processed' && outcome.detail) {
+            // Counts, never a subject — on this topic the subject is what we were asked to forget.
+            ctx.log.info('a mounted module handled an inbound event', {
+              module: sink.module,
+              topic,
+              eventId,
+              ...outcome.detail,
+            })
+          }
+        }
+
         // `deps.sql` — the SELECTOR — and not `ctx.sql`, which is one resolved handle. An erasure
         // names a person, and a person has rows on both planes; see `erasureplanes.ts` for the
         // measurement that showed every erasure since 2026-08-19 landing on mainnet only.
@@ -846,6 +890,7 @@ function buildRoutes(): Route[] {
               status: plane.status,
               erased: plane.value !== null,
             })),
+            ...(hasFanout(fanout) ? { fanout } : {}),
           },
         }
       } finally {
@@ -1965,6 +2010,11 @@ function requireEnum<T extends string>(
  * attacker who can measure the comparison can recover a valid signature one character at a time
  * without ever knowing the key.
  */
+/** Whether any mounted module answered, so an empty object never reaches the wire as `{}`. */
+function hasFanout(fanout: Record<string, string>): boolean {
+  return Object.keys(fanout).length > 0
+}
+
 function verifySignature(body: Buffer, secret: string, presented: string): boolean {
   const expected = Buffer.from(signEvent(body.toString('utf8'), secret))
   const actual = Buffer.from(presented)

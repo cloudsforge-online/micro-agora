@@ -55,9 +55,17 @@ import { JobQueue, JobRunner, type Sql as JobsSql } from '@cloudsforge/jobs'
 import type { Probe } from '@cloudsforge/lifecycle'
 import { postgresProbe } from '@cloudsforge/lifecycle'
 import { Logger, type Metrics } from '@cloudsforge/telemetry'
+import type { Network } from '@cloudsforge/http'
 import type { RouteSpec } from '../kernel.ts'
+import type { InboundOutcome, InboundSink } from '../inboundsink.ts'
+import { eraseEveryPlane, planeTotals } from '../erasureplanes.ts'
+import { USER_DELETED_TOPIC, eraseSubject } from './erasure.ts'
+import { withInbox } from './outbox.ts'
 import type { Target } from '../migratortargets.ts'
 import { SERVICE, env, redactedEndpoint } from './env.ts'
+
+/** The uuid `identity` sends in `payload.userId`. Anchored, so a longer string is not a match. */
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 import { BASELINE_VERSION, MIGRATIONS, SCHEMA_VERSION } from './migrations.ts'
 import { mountableRoutes, registerServiceMetrics, type PrincipalVerifier } from './server.ts'
 import { registerHandlers, rescheduleRecurring, seedRecurring, GENERATE_KIND } from './jobs.ts'
@@ -119,6 +127,8 @@ export interface HostRuntime {
 /** What the host process gets back. **No field here names a database handle or a blob store.** */
 export interface StudioModule {
   readonly routes: readonly RouteSpec<Db>[]
+  /** This module's half of the host's one event webhook. See the value for why it is not a route. */
+  readonly inbound: InboundSink
   /**
    * The readiness probes for THIS module.
    *
@@ -397,6 +407,48 @@ export async function createStudioModule(host: HostRuntime): Promise<StudioModul
 
   return {
     routes,
+    /**
+     * This module's half of the process's ONE event webhook.
+     *
+     * Studio does not serve `POST /v1/events` and is not getting one. `agora/src/server.ts`'s
+     * `MOUNTED_EVENT_PATHS` gives a module its own suffixed path when the modules hold DIFFERENT
+     * ingest keys, and refuses to fan out when they do — the condition it states is ONE KEY, NOT
+     * THREE. studio, foresight, wallet and agora all verify with the estate-wide
+     * `OUTBOX_SIGNING_SECRET` (`env.ts`), so a delivery that verifies for the host verifies for
+     * this module, and a second subscription row pointing at the same URL would only be the same
+     * event id deduped away by `withInbox` (micro-org#534).
+     */
+    inbound: {
+      module: MODULE_LABEL,
+      topics: new Set([USER_DELETED_TOPIC]),
+      deliver: async (
+        _network: Network,
+        topic: string,
+        eventId: string,
+        payload: Record<string, unknown>,
+      ): Promise<InboundOutcome> => {
+        if (topic !== USER_DELETED_TOPIC) return { status: 'processed' }
+        // `payload.userId`, not `envelope.actor`: on this topic the actor is whoever ASKED for the
+        // deletion, which is the deleted user only when they deleted themselves.
+        const named = typeof payload['userId'] === 'string' ? payload['userId'] : ''
+        const bare = named.startsWith('user:') ? named.slice('user:'.length) : named
+        if (!UUID.test(bare)) {
+          // A RESULT and not a throw: the host maps this to a 400. A deletion we cannot perform
+          // must not be acknowledged as performed.
+          return { status: 'rejected', reason: `${USER_DELETED_TOPIC} requires a uuid userId` }
+        }
+        // EVERY plane, from THIS MODULE'S selector — the `_network` argument is deliberately
+        // unused on this topic. The host passes a network and never a handle, so studio still
+        // cannot be aimed at another module's database; what changes is how many of its own
+        // handles the erasure reaches (micro-org#474, `../erasureplanes.ts`).
+        const sweep = await eraseEveryPlane(studioSql, (handle: Db) =>
+          withInbox(handle, topic, eventId, (tx) => eraseSubject(tx, `user:${bare}`)),
+        )
+        if (sweep.processed === 0) return { status: 'duplicate' }
+        // Counts only, summed across the planes. The erased subject is never logged.
+        return { status: 'processed', detail: planeTotals(sweep) }
+      },
+    },
     probes: [
       postgresProbe(`postgres-${MODULE_LABEL}`, (signal) =>
         Promise.race([

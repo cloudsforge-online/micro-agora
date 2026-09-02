@@ -576,6 +576,15 @@ const server = createMergedServer(
   // The same secret signs what this service emits and verifies what identity sends. See the header
   // of `server.ts`: an unsigned inbound event route here is a free account-erasure endpoint.
   eventSigningSecret: env.outboxSigningSecret,
+  // ── THE MODULES THAT CONSUME THE BUS THROUGH THE SQUARE'S WEBHOOK ────────────────────────────
+  //
+  // studio has no `POST /v1/events` of its own and is not getting one. It verifies with the same
+  // estate-wide `OUTBOX_SIGNING_SECRET` this route checks, and it subscribes to the same topic, so
+  // `MOUNTED_EVENT_PATHS`'s condition — ONE KEY, NOT THREE — is met and a fan-out is the honest
+  // shape rather than a shortcut. Routing `identity.user.deleted` to the square alone would answer
+  // 200 to a deletion that left every brand kit, prompt and generated image standing
+  // (micro-org#534).
+  inbound: [studio.inbound],
   pageSizeMax: env.pageSizeMax,
   // Queue depth is sampled at scrape time rather than on a timer. There is no `setInterval` in
   // this repository, and CI greps for one — rule 8.
