@@ -288,6 +288,9 @@ export async function createAnalyticsModule(host: HostRuntime): Promise<Analytic
       queue,
       ingest: {
         sql,
+        // Both planes, for `identity.user.deleted` alone — `ingest.ts` runs a second pass on the
+        // ones `sql` above is not. Every event write still uses `sql`.
+        planes: analyticsSql,
         logger,
         metrics,
         secrets: env.deliverySecrets,

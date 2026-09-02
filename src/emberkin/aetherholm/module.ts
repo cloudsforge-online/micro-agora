@@ -59,6 +59,7 @@ import type { Probe } from '@cloudsforge/lifecycle';
 import { postgresProbe } from '@cloudsforge/lifecycle';
 import { Logger, type Metrics } from '@cloudsforge/telemetry';
 import type { RouteSpec, RequestContext } from '../../kernel.ts';
+import { eraseEveryPlane, planeTotals } from '../../erasureplanes.ts';
 import { OPERATIONAL_ROUTES } from '../../kernel.ts';
 // ── WHY THESE LIVE IN `./server.ts` AND ARE IMPORTED BACK ───────────────────────────────────
 //
@@ -340,11 +341,6 @@ export async function createAetherholmModule(host: HostRuntime): Promise<Aetherh
         eventId: string,
         payload: Record<string, unknown>,
       ): Promise<InboundOutcome> => {
-        // THIS MODULE'S HANDLE, RESOLVED FROM THIS MODULE'S SELECTOR. The host passes a network
-        // and never a handle, so the erasure below cannot be aimed at emberkin's database — where
-        // it would find an `inbox` table and a `battles` table of the same names and do something
-        // plausible and wrong.
-        const handle = aetherholmSql.for(network) as unknown as Db;
         const userId = payload['userId'];
         if (topic !== USER_DELETED_TOPIC) return { status: 'processed' };
         if (typeof userId !== 'string' || !UUID.test(userId)) {
@@ -352,11 +348,27 @@ export async function createAetherholmModule(host: HostRuntime): Promise<Aetherh
           // answered. A deletion we cannot perform must not be acknowledged as performed.
           return { status: 'rejected', reason: `${USER_DELETED_TOPIC} requires a uuid userId` };
         }
-        const outcome = await withInbox(handle, topic, eventId, (tx) => eraseUser(tx, userId));
-        if (outcome.status === 'duplicate') return { status: 'duplicate' };
-        // Counts only. The erased id is never logged — writing it into the log would recreate, in
-        // the one store nothing erases, exactly what the request was to remove.
-        return { status: 'processed', detail: { ...outcome.value } };
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        // EVERY PLANE, AND THE `network` ARGUMENT IS DELIBERATELY UNUSED ON THIS TOPIC.
+        //
+        // The host passes a network and never a handle, so this module still cannot be aimed at
+        // emberkin's database — the selector below is aetherholm's own, and that invariant is
+        // untouched. What changes is how many of ITS OWN handles the erasure reaches: one, until
+        // 2026-09-02. Measured then, `inbox` rows for this topic: `aetherholm` 101,
+        // `aetherholm_testnet` 24, the second number frozen since the k8s migration
+        // (micro-org#474). The event names a person, and a person is not an estate.
+        //
+        // `network` remains in the signature because every other topic a sink handles IS scoped to
+        // one estate, and this is the exception rather than the rule.
+        // ══════════════════════════════════════════════════════════════════════════════════════
+        const sweep = await eraseEveryPlane(aetherholmSql, (handle: Db) =>
+          withInbox(handle, topic, eventId, (tx) => eraseUser(tx, userId)),
+        );
+        if (sweep.processed === 0) return { status: 'duplicate' };
+        // Counts only, summed across the planes. The erased id is never logged — writing it into
+        // the log would recreate, in the one store nothing erases, exactly what the request was to
+        // remove.
+        return { status: 'processed', detail: planeTotals(sweep) };
       },
     },
     probe: postgresProbe('postgres-aetherholm', (signal) =>

@@ -98,7 +98,15 @@ describe('the HTTP surface', { skip }, () => {
       token: TOKEN,
       minCohort: 5,
       queue,
-      ingest: { sql, logger: quietLogger(), metrics, secrets: [SECRET], peppers: TEST_PEPPER },
+      ingest: {
+        sql,
+        // ONE plane, as a single-network deployment holds.
+        planes: networkSql({ mainnet: sql as unknown as RuntimeSql }),
+        logger: quietLogger(),
+        metrics,
+        secrets: [SECRET],
+        peppers: TEST_PEPPER,
+      },
       beforeScrape: scrapeRefresh({ sql, metrics }),
     }
     const server: Server = createServer(deps)

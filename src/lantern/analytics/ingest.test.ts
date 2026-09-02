@@ -7,6 +7,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { networkSql, type Sql as DbSql } from '@cloudsforge/db'
 import { after, before, beforeEach, describe, it } from 'node:test'
 import type postgres from 'postgres'
 import {
@@ -42,6 +43,9 @@ describe('ingest', { skip }, () => {
       logger: quietLogger(),
       metrics: testMetrics(),
       secrets: [SECRET],
+      // ONE plane: the suite has one database, so the second pass in `ingest` skips it and every
+      // existing assertion is unchanged.
+      planes: networkSql({ mainnet: sql as unknown as DbSql }),
       peppers: TEST_PEPPER,
     }
   })

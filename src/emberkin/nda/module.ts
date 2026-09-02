@@ -77,11 +77,13 @@ import type { Probe } from '@cloudsforge/lifecycle';
 import { postgresProbe } from '@cloudsforge/lifecycle';
 import { Logger, type Metrics } from '@cloudsforge/telemetry';
 import type { RouteSpec } from '../../kernel.ts';
+import { eraseEveryPlane, planeTotals } from '../../erasureplanes.ts';
 import type { InboundOutcome, InboundSink } from '../routes.ts';
 import type { Target } from '../../migratortargets.ts';
 import { SERVICE, env } from './env.ts';
 import { BASELINE_VERSION, MIGRATIONS, SCHEMA_VERSION } from './migrations.ts';
 import {
+  DELETED_TOPIC,
   SUBSCRIBED_TOPICS,
   applyInboundEvent,
   mountableRoutes,
@@ -447,10 +449,34 @@ export async function createNdaModule(host: HostRuntime): Promise<NdaModule> {
         eventId: string,
         payload: Record<string, unknown>,
       ): Promise<InboundOutcome> => {
-        // THIS MODULE'S HANDLE, RESOLVED FROM THIS MODULE'S SELECTOR. The host passes a network
-        // and never a handle, so the erasure below cannot be aimed at emberkin's or aetherholm's
-        // database — where it would find an `inbox` table of the same name and the same columns
-        // and do something plausible and wrong.
+        // THIS MODULE'S SELECTOR, and the host still passes a network and never a handle — so
+        // nothing here can be aimed at emberkin's or aetherholm's database, where an `inbox` table
+        // of the same name and the same columns would do something plausible and wrong.
+        //
+        // For the ERASURE topic the sweep is over every plane rather than the one the request came
+        // from: measured 2026-09-02, `nda` held 101 rows for it and `nda_testnet` 24, the second
+        // frozen since the k8s migration (micro-org#474). Every other topic keeps `network`,
+        // because every other topic is a fact about one estate.
+        if (topic === DELETED_TOPIC) {
+          let rejected: string | undefined
+          const sweep = await eraseEveryPlane(ndaSql, async (handle: Db) => {
+            const applied = await applyInboundEvent(handle, logger, topic, eventId, payload);
+            if (applied.status === 'rejected') {
+              rejected = applied.reason;
+              // A duplicate for the sweep's arithmetic; the caller sees the rejection below. The
+              // alternative — throwing — would be wrapped by `each` and lose the reason.
+              return { status: 'duplicate' as const };
+            }
+            if (applied.status === 'duplicate') return { status: 'duplicate' as const };
+            return { status: 'processed' as const, value: { erased: applied.erased } };
+          });
+          if (rejected !== undefined) return { status: 'rejected', reason: rejected };
+          if (sweep.processed === 0) return { status: 'duplicate' };
+          // Counts only, summed across the planes. The erased id is never logged — writing it into
+          // the log would recreate, in the one store nothing erases, exactly what the request was
+          // to remove.
+          return { status: 'processed', detail: planeTotals(sweep) };
+        }
         const handle = ndaSql.for(network) as unknown as Db;
         const outcome = await applyInboundEvent(handle, logger, topic, eventId, payload);
         if (outcome.status === 'duplicate') return { status: 'duplicate' };
@@ -459,8 +485,6 @@ export async function createNdaModule(host: HostRuntime): Promise<NdaModule> {
           // answered. A deletion we cannot perform must not be acknowledged as performed.
           return { status: 'rejected', reason: outcome.reason };
         }
-        // Counts only. The erased id is never logged — writing it into the log would recreate, in
-        // the one store nothing erases, exactly what the request was to remove.
         return { status: 'processed', detail: { erased: outcome.erased } };
       },
     },
