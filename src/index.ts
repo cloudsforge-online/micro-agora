@@ -582,9 +582,9 @@ const server = createMergedServer(
   // estate-wide `OUTBOX_SIGNING_SECRET` this route checks, and it subscribes to the same topic, so
   // `MOUNTED_EVENT_PATHS`'s condition — ONE KEY, NOT THREE — is met and a fan-out is the honest
   // shape rather than a shortcut. Routing `identity.user.deleted` to the square alone would answer
-  // 200 to a deletion that left every brand kit, prompt and generated image standing
-  // (micro-org#534).
-  inbound: [studio.inbound],
+  // 200 to a deletion that left every brand kit, prompt and generated image standing, and every
+  // custodial stake still naming the person who placed it (micro-org#534).
+  inbound: [studio.inbound, foresight.inbound],
   pageSizeMax: env.pageSizeMax,
   // Queue depth is sampled at scrape time rather than on a timer. There is no `setInterval` in
   // this repository, and CI greps for one — rule 8.

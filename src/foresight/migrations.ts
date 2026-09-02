@@ -1310,6 +1310,89 @@ export const MIGRATIONS: readonly Migration[] = [
         check (state not in ('staked','settled') or platform_address is not null);
     `,
   },
+
+  {
+    version: 14,
+    name: 'an_erasure_may_repoint_a_stake_and_nothing_else_may',
+    up: `
+      -- ═══════════════════════════════════════════════════════════════════════════════════════
+      -- A GDPR ERASURE CANNOT COMPLETE FOR ANYONE WHO HAS EVER STAKED (micro-org#534)
+      -- ═══════════════════════════════════════════════════════════════════════════════════════
+      --
+      -- \`custodial_stakes_money_is_immutable\` (migration 9) refuses ANY change of \`subject\`,
+      -- and an erasure has to repoint it onto an \`erased:<uuid>\` placeholder. Deleting the row
+      -- is not available either, and the trigger's own message says why: it is what a refund is
+      -- paid from and what makes the rate auditable.
+      --
+      -- ── THIS IS THE SECOND TIME, AND THE FIRST ONE COST A DAY OF 5xx ───────────────────────
+      --
+      -- \`tessera_guard_homestead\` did exactly this to \`parcels.owner_subject\`. The handler does
+      -- not catch a Postgres refusal, so \`withInbox\` writes no inbox row, the relay redelivers
+      -- for ever, and the outward signal is an SLO burn attributed to services that have done
+      -- nothing. Measured on 2026-09-02: 2,962 of the last 4,000 lines of agora's log, and the
+      -- whole of the estate's 5xx rate, from eight parcels. Tessera's migration 16 is the
+      -- template for this one, deliberately — the same shape of defect deserves the same shape
+      -- of fix, and a reader who has seen one should recognise the other immediately.
+      --
+      -- Foresight has NOT been failing this way, because it has never had an erasure handler at
+      -- all. The migration lands with the handler rather than after it.
+      --
+      -- ── WHY THE GUARD WAS RIGHT AND STILL IS ───────────────────────────────────────────────
+      --
+      -- A stake is money somebody put down, and every column that says HOW MUCH stays frozen:
+      -- \`stake_amount\`, \`pool_amount\`, both rates, the asset code, the outcome and the market.
+      -- What changes is WHO, and only in one direction. A refund computed from this row is
+      -- computed from the same numbers afterwards; what it can no longer do is name a person.
+      --
+      -- ── EXACTLY ONE TRANSITION, AND IT IS ONE-WAY ──────────────────────────────────────────
+      --
+      -- \`subject\` may become an \`erased:\` placeholder, matched against the same uuid shape
+      -- \`custodial_stakes_subject_shape\` uses for the \`user:\` form. It may never become anything
+      -- else, and it may never move OFF one: a row already erased has \`old.subject\` starting
+      -- \`erased:\`, and the first branch below still raises for it, so nothing can re-attribute an
+      -- erased stake to a person.
+      --
+      -- The money branch is UNCHANGED and still runs first, so an UPDATE that tried to smuggle a
+      -- new amount alongside the placeholder is refused on the amount, not permitted on the
+      -- subject.
+      -- ═══════════════════════════════════════════════════════════════════════════════════════
+      create or replace function custodial_stakes_money_is_immutable() returns trigger
+        language plpgsql
+      as $$
+      begin
+        if new.stake_asset_code is distinct from old.stake_asset_code
+           or new.stake_amount is distinct from old.stake_amount
+           or new.pool_amount is distinct from old.pool_amount
+           or new.stake_rate_usd_scaled is distinct from old.stake_rate_usd_scaled
+           or new.pool_rate_usd_scaled is distinct from old.pool_rate_usd_scaled
+           or new.outcome is distinct from old.outcome
+           or new.market_id is distinct from old.market_id then
+          raise exception 'a recorded stake is immutable: it is what a refund is paid from and what makes the rate auditable'
+            using errcode = 'check_violation';
+        end if;
+        -- The subject, separately, so the message names the actual rule rather than the money one.
+        if new.subject is distinct from old.subject
+           and new.subject !~ '^erased:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
+          raise exception 'a stake''s subject may only be repointed onto an erased: placeholder (Art. 17)'
+            using errcode = 'check_violation';
+        end if;
+        if old.state in ('settled','refunded') and new.state is distinct from old.state then
+          raise exception 'a % stake is terminal', old.state
+            using errcode = 'check_violation';
+        end if;
+        return new;
+      end;
+      $$;
+
+      -- The shape CHECK admits the erased spelling too, for the same reason: it was written when
+      -- \`user:\` was the only thing a subject could be.
+      alter table custodial_stakes drop constraint if exists custodial_stakes_subject_shape;
+      alter table custodial_stakes add constraint custodial_stakes_subject_shape check (
+        subject ~ '^user:[0-9a-f-]{36}$'
+        or subject ~ '^erased:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      );
+    `,
+  },
 ]
 
 export const SCHEMA_VERSION: number = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0)
