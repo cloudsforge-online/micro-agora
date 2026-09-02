@@ -862,7 +862,7 @@ test('an erasure KEEPS a reward grant and anonymises it, because the ledger reco
   })
   await sql`
     insert into reward_grants
-      (season_id, user_id, title_id, reason, amount_shards, journal_entry_id, idempotency_key)
+      (season_id, user_id, title_id, reason, amount_wei, journal_entry_id, idempotency_key)
     values (${season.id}, ${userId}, ${title.id}, 'test', 5, 'je-erasure-1', 'idem-erasure-1')
   `
 
@@ -878,14 +878,16 @@ test('an erasure KEEPS a reward grant and anonymises it, because the ledger reco
   })
   assert.equal(res.status, 202)
 
-  const kept = await sql<{ user_id: string; journal_entry_id: string; amount_shards: string }[]>`
-    select user_id, journal_entry_id, amount_shards from reward_grants
+  // `amount_wei`, not `amount_shards`: migration 8 named it in shards and a later one renamed it
+  // when the estate stopped denominating in them. The FINAL schema is what a test asserts against.
+  const kept = await sql<{ user_id: string; journal_entry_id: string; amount_wei: string }[]>`
+    select user_id, journal_entry_id, amount_wei from reward_grants
      where idempotency_key = 'idem-erasure-1'
   `
   assert.equal(kept.length, 1, 'the grant is RETAINED — deleting it would unreconcile a posting')
   assert.notEqual(kept[0]?.user_id, userId, 'and the subject is gone from it')
   assert.equal(kept[0]?.journal_entry_id, 'je-erasure-1', 'the ledger reference is untouched')
-  assert.equal(String(kept[0]?.amount_shards), '5', 'so is the amount')
+  assert.equal(String(kept[0]?.amount_wei), '5', 'so is the amount')
 })
 
 test('an erasure with no uuid userId is a 400, not a quiet acknowledgement', { skip }, async () => {
